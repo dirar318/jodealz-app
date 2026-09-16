@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <!-- Premium Brand Gradient -->
+    <linearGradient id="brand-grad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#E11D48" /> <!-- Deep Rose Red -->
+      <stop offset="50%" stop-color="#FF4D4D" /> <!-- Deals Red -->
+      <stop offset="100%" stop-color="#FF9F0A" /> <!-- Warm Gold -->
+    </linearGradient>
+    
+    <!-- Subtle Drop Shadow for Premium Depth -->
+    <filter id="premium-shadow" x="-10%" y="-10%" width="120%" height="125%" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#E11D48" flood-opacity="0.18" />
+      <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#000000" flood-opacity="0.08" />
+    </filter>
+  </defs>
+
+  <!-- Logo Mark Shape -->
+  <g filter="url(#premium-shadow)">
+    <!-- Compound path: Outer Flame-Pin (Clockwise) + Inner Pin Hole (Counter-Clockwise) -->
+    <path fill="url(#brand-grad)" fill-rule="evenodd" d="
+      M 256,450 
+      C 210,390 126,285 126,206 
+      C 126,134 165,95 185,85 
+      C 200,77 215,95 225,115 
+      C 235,135 244,95 256,35 
+      C 268,95 277,135 287,115 
+      C 297,95 312,77 327,85 
+      C 347,95 386,134 386,206 
+      C 386,285 302,390 256,450 Z
+      
+      M 256,246
+      A 40,40 0 1,0 256,166
+      A 40,40 0 1,0 256,246 Z" />
+  </g>
+</svg>

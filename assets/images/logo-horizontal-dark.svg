@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 50" width="100%" height="100%">
+  <defs>
+    <!-- Brand Gradient -->
+    <linearGradient id="brand-grad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#E11D48" />
+      <stop offset="50%" stop-color="#FF4D4D" />
+      <stop offset="100%" stop-color="#FF9F0A" />
+    </linearGradient>
+    
+    <!-- Subtle Shadow for Logo Mark -->
+    <filter id="mark-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#E11D48" flood-opacity="0.12" />
+    </filter>
+  </defs>
+
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@800&amp;display=swap');
+    .logo-text {
+      font-family: 'Poppins', 'Segoe UI', system-ui, sans-serif;
+      font-weight: 800;
+      font-size: 23px;
+      letter-spacing: -0.5px;
+    }
+  </style>
+
+  <!-- Logo Mark (scaled and translated) -->
+  <g filter="url(#mark-shadow)" transform="translate(8, 7) scale(0.0703)">
+    <!-- Outer Flame-Pin + Inner Pin Hole -->
+    <path fill="url(#brand-grad)" fill-rule="evenodd" d="
+      M 256,450 
+      C 210,390 126,285 126,206 
+      C 126,134 165,95 185,85 
+      C 200,77 215,95 225,115 
+      C 235,135 244,95 256,35 
+      C 268,95 277,135 287,115 
+      C 297,95 312,77 327,85 
+      C 347,95 386,134 386,206 
+      C 386,285 302,390 256,450 Z
+      
+      M 256,246
+      A 40,40 0 1,0 256,166
+      A 40,40 0 1,0 256,246 Z" />
+  </g>
+
+  <!-- Typography (White for dark backgrounds) -->
+  <text x="54" y="33" class="logo-text" fill="#FFFFFF">JO-<tspan fill="url(#brand-grad)">Dealz</tspan></text>
+</svg>

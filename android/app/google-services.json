@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "724842455682",
+    "project_id": "jodeals-eaec4",
+    "storage_bucket": "jodeals-eaec4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:724842455682:android:a0a31f16bc27a3ffbfca9b",
+        "android_client_info": {
+          "package_name": "com.jodealz.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "724842455682-l1liu8qtn6bfv68n9icgo5ue5tbonusk.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.jodealz.app",
+            "certificate_hash": "345bafade5047abeeb7effd793ef07b07fa2741a"
+          }
+        },
+        {
+          "client_id": "724842455682-9277p7oml8409inicouerru4ivl4ns0f.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDKTLHElqKHj0KxQTIYYh9lCiAFmcSxraE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "724842455682-9277p7oml8409inicouerru4ivl4ns0f.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
