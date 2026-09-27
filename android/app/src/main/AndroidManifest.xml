@@ -19,7 +19,7 @@
     <uses-feature android:name="android.hardware.fingerprint" android:required="false"/>
 
     <application
-        android:label="JoDeals"
+        android:label="JO-Dealz"
         android:name="${applicationName}"
         android:icon="@mipmap/launcher_icon"
         android:hardwareAccelerated="true"
@@ -55,7 +55,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
-            <!-- App Links deep linking for JoDeals -->
+            <!-- App Links deep linking for JO-Dealz -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW"/>
                 <category android:name="android.intent.category.DEFAULT"/>

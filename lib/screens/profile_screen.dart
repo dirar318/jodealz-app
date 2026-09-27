@@ -138,15 +138,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
         navigator.pop();
         return;
       }
-      throw Exception('Delete failed (${response.statusCode})');
+      // e.g. 409 CONTACT_SUPPORT for business accounts: show the server's reason.
+      final String? serverMessage = data?['message'] as String?;
+      throw _DeleteAccountException(response.statusCode == 409 ? serverMessage : null);
     } catch (e) {
       debugPrint('ProfileScreen: account deletion failed: $e');
+      final String? reason = e is _DeleteAccountException ? e.message : null;
       messenger.showSnackBar(SnackBar(
-        content: Text(_txt(
-          'تعذر حذف الحساب. يرجى المحاولة لاحقاً.',
-          'Could not delete your account. Please try again later.',
-        )),
+        content: Text(reason ??
+            _txt(
+              'تعذر حذف الحساب. يرجى المحاولة لاحقاً.',
+              'Could not delete your account. Please try again later.',
+            )),
         backgroundColor: Colors.red,
+        duration: const Duration(seconds: 5),
       ));
     } finally {
       if (mounted) setState(() => _isDeleting = false);
@@ -532,3 +537,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
+
+class _DeleteAccountException implements Exception {
+  const _DeleteAccountException(this.message);
+  final String? message;
+
+  @override
+  String toString() => 'DeleteAccountException($message)';
+}

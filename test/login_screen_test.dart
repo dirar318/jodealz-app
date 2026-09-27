@@ -17,7 +17,7 @@ void main() {
 
     // Stub out package_info_plus
     PackageInfo.setMockInitialValues(
-      appName: 'JoDeals',
+      appName: 'JO-Dealz',
       packageName: 'com.jodeals.app',
       version: '1.0.0',
       buildNumber: '1',

@@ -48,7 +48,7 @@ void main() async {
   });
 
   // ── Read SharedPreferences once at startup ────────────────────────────────
-  // Shared by JoDealsApp (locale) and AppController (URL lang param) so we
+  // Shared by JoDealzApp (locale) and AppController (URL lang param) so we
   // avoid multiple platform-channel round-trips to the prefs store.
   final SharedPreferences prefs = await SharedPreferences.getInstance();
   final String savedLang = prefs.getString('jodeals_app_lang') ?? 'ar';
@@ -112,15 +112,15 @@ void main() async {
     return true;
   };
 
-  runApp(JoDealsApp(
-    key: JoDealsApp.appKey,
+  runApp(JoDealzApp(
+    key: JoDealzApp.appKey,
     initialLang: savedLang,
     isFirstLaunch: isFirstLaunch,
   ));
 }
 
-class JoDealsApp extends StatefulWidget {
-  const JoDealsApp({
+class JoDealzApp extends StatefulWidget {
+  const JoDealzApp({
     super.key,
     required this.initialLang,
     required this.isFirstLaunch,
@@ -131,7 +131,7 @@ class JoDealsApp extends StatefulWidget {
 
   /// Global key so that SettingsScreen can trigger a locale change app-wide.
   // ignore: library_private_types_in_public_api
-  static final GlobalKey<_JoDealsAppState> appKey = GlobalKey<_JoDealsAppState>();
+  static final GlobalKey<_JoDealzAppState> appKey = GlobalKey<_JoDealzAppState>();
 
   /// Call this from SettingsScreen after saving a new language to SharedPreferences.
   static void setLocale(String langCode) {
@@ -139,10 +139,10 @@ class JoDealsApp extends StatefulWidget {
   }
 
   @override
-  State<JoDealsApp> createState() => _JoDealsAppState();
+  State<JoDealzApp> createState() => _JoDealzAppState();
 }
 
-class _JoDealsAppState extends State<JoDealsApp> {
+class _JoDealzAppState extends State<JoDealzApp> {
   late Locale _locale;
 
   @override
@@ -164,7 +164,7 @@ class _JoDealsAppState extends State<JoDealsApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'JoDeals',
+      title: 'JO-Dealz',
       debugShowCheckedModeBanner: false,
       // ── Locale & RTL/LTR ────────────────────────────────────────────────────
       locale: _locale,
@@ -335,7 +335,7 @@ class _AppControllerState extends State<AppController> {
 
 
   void _handleNavigation(String url) {
-    // Deep links and push payloads are untrusted input: only JoDeals URLs are
+    // Deep links and push payloads are untrusted input: only JO-Dealz URLs are
     // loaded in the app WebView.
     final String target = TrustedHosts.sanitize(url);
     if (_webViewKey.currentState != null) {

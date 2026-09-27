@@ -1,6 +1,6 @@
 /* Permission prompts shown by iOS (English). */
-"CFBundleDisplayName" = "JoDeals";
-"NSCameraUsageDescription" = "JoDeals uses the camera so you can take a profile photo or photograph a receipt to upload.";
-"NSPhotoLibraryUsageDescription" = "JoDeals uses your photo library so you can choose a profile photo or receipt to upload.";
-"NSLocationWhenInUseUsageDescription" = "JoDeals uses your location while you use the app to show deals and shops near you.";
-"NSFaceIDUsageDescription" = "JoDeals uses Face ID so you can sign in quickly and securely.";
+"CFBundleDisplayName" = "JO-Dealz";
+"NSCameraUsageDescription" = "JO-Dealz uses the camera so you can take a profile photo or photograph a receipt to upload.";
+"NSPhotoLibraryUsageDescription" = "JO-Dealz uses your photo library so you can choose a profile photo or receipt to upload.";
+"NSLocationWhenInUseUsageDescription" = "JO-Dealz uses your location while you use the app to show deals and shops near you.";
+"NSFaceIDUsageDescription" = "JO-Dealz uses Face ID so you can sign in quickly and securely.";

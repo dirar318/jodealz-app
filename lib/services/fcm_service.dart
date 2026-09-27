@@ -151,7 +151,7 @@ class FCMService {
     }
   }
 
-  // Extract navigation payload and route to WebView. Only JoDeals URLs are
+  // Extract navigation payload and route to WebView. Only JO-Dealz URLs are
   // honoured; anything else falls back to the home page.
   static void handleMessagePayload(RemoteMessage message, Function(String url) callback) {
     final String? targetUrl = message.data['url'];

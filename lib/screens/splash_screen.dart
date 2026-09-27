@@ -272,7 +272,7 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        isArabic ? 'جو ديلز' : 'JoDeals',
+                        isArabic ? 'جو ديلز' : 'JO-Dealz',
                         style: isArabic
                             ? GoogleFonts.cairo(
                                 fontSize: 30,

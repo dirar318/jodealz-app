@@ -45,10 +45,10 @@ class MainActivity: FlutterFragmentActivity() {
 
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "JoDeals Notifications",
+            "JO-Dealz Notifications",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "Notifications for JoDeals deals, order status, and messages."
+            description = "Notifications for JO-Dealz deals, order status, and messages."
             enableLights(true)
             enableVibration(true)
             setSound(soundUri, audioAttributes)

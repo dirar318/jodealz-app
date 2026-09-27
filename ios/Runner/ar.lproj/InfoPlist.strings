@@ -1,6 +1,6 @@
 /* Permission prompts shown by iOS (Arabic). */
-"CFBundleDisplayName" = "JoDeals";
-"NSCameraUsageDescription" = "يستخدم JoDeals الكاميرا لتتمكن من التقاط صورة للملف الشخصي أو تصوير إيصال لرفعه.";
-"NSPhotoLibraryUsageDescription" = "يستخدم JoDeals مكتبة الصور لتتمكن من اختيار صورة للملف الشخصي أو إيصال لرفعه.";
-"NSLocationWhenInUseUsageDescription" = "يستخدم JoDeals موقعك أثناء استخدام التطبيق لعرض العروض والمتاجر القريبة منك.";
-"NSFaceIDUsageDescription" = "يستخدم JoDeals بصمة الوجه لتسجيل الدخول بسرعة وأمان.";
+"CFBundleDisplayName" = "JO-Dealz";
+"NSCameraUsageDescription" = "يستخدم JO-Dealz الكاميرا لتتمكن من التقاط صورة للملف الشخصي أو تصوير إيصال لرفعه.";
+"NSPhotoLibraryUsageDescription" = "يستخدم JO-Dealz مكتبة الصور لتتمكن من اختيار صورة للملف الشخصي أو إيصال لرفعه.";
+"NSLocationWhenInUseUsageDescription" = "يستخدم JO-Dealz موقعك أثناء استخدام التطبيق لعرض العروض والمتاجر القريبة منك.";
+"NSFaceIDUsageDescription" = "يستخدم JO-Dealz بصمة الوجه لتسجيل الدخول بسرعة وأمان.";

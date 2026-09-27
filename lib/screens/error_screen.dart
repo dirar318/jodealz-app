@@ -556,7 +556,7 @@ class _ErrorScreenState extends State<ErrorScreen> with SingleTickerProviderStat
             Text(
               widget.errorMessage ?? _txt(
                 'يبدو أنك لست متصلاً بالإنترنت حالياً ولا تتوفر صفقات محفوظة للمشاهدة بدون شبكة.',
-                'We cannot connect to JoDeals right now, and there are no cached deals available for offline browsing.',
+                'We cannot connect to JO-Dealz right now, and there are no cached deals available for offline browsing.',
               ),
               style: GoogleFonts.inter(
                 fontSize: 13,

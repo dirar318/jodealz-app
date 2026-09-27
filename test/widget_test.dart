@@ -106,7 +106,7 @@ void main() {
 
   testWidgets('Verify that the splash screen logo/brand title is displayed', (WidgetTester tester) async {
     // Build our app and trigger a frame.
-    await tester.pumpWidget(const JoDealsApp(
+    await tester.pumpWidget(const JoDealzApp(
       initialLang: 'ar',
       isFirstLaunch: false,
     ));

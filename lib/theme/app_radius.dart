@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Centralized Border Radius tokens matching the JoDeals website design system
+/// Centralized Border Radius tokens matching the JO-Dealz website design system
 /// Source of truth: D:\Projects\Personal\JoDeals\public_html\assets\css\mobile-design-system.css
 class AppRadius {
   AppRadius._();

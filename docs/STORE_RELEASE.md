@@ -6,120 +6,54 @@ and the release checklist. Code-side compliance work is already done in the app.
 
 ---
 
-## 1. Backend changes (jodealz.online)
+## 1. Backend (`D:\Projects\Personal\JoDeals`) — implemented, deploy it
 
-### 1.1 Verify social login tokens — `POST /api/v1/auth/social.php` (Critical)
+These changes are made in the website repo (uncommitted, alongside your own
+work there). Deploy them together with this app version.
 
-The app now sends a signed identity token. The server **must verify it and take
-the user's identity only from the verified token**. The plain `email` /
-`provider_id` fields are informational and must not be trusted, or anyone can
-sign in as any user by posting their email.
+| File | Change |
+|---|---|
+| `public_html/includes/social-token-verifier.php` | **New.** Verifies Google/Apple ID tokens (RS256 signature against the provider's JWKS, `iss`, `aud`, `exp`). JWKS cached for 1 h in the system temp dir. |
+| `public_html/api/v1/auth/social.php` | Requires `id_token`; identity (`sub`, email) comes only from the verified token. Matches users by `provider + sub`, then by verified email. Facebook removed (the app never used it). Old app builds without a token get `ID_TOKEN_REQUIRED` + "please update". |
+| `public_html/api/v1/auth/delete-account.php` | **New.** `POST {"confirm":true}` with the session token. Deletes the customer's account and personal data (cart, saved deals, favourite categories, notifications, device tokens, sessions, login history, password resets, tour progress, roles, referral code, profile photo file) in one transaction, unlinks the device from the person, ends the session. Business/admin accounts get `409 CONTACT_SUPPORT`. |
+| `public_html/api/register-device.php` | The user is taken only from a valid, active session token (a body `user_id` was trusted before — anyone could receive another user's pushes). Partial updates no longer wipe the stored FCM token/device fields. iOS devices without analytics consent are no longer recorded as "Android". Removed a call to the non-existent `JWTHelper::verify()`. |
+| `public_html/api/update-fcm-token.php` | Same session-token fix; the old `JWTHelper::verify()` call made every token refresh from the app fail with a PHP fatal error (HTTP 500). |
+| `public_html/api/update-device-preferences.php`, `register-device.php`, `config/db.php` | New devices default to `marketing_enabled = 0` (promotional pushes are opt-in, App Store 4.5.4). Existing rows keep their value. |
 
-Request body (JSON):
+Optional configuration (environment variables on the server):
+`GOOGLE_OAUTH_AUDIENCES` (comma-separated OAuth client IDs accepted as `aud`;
+default: the Web client `724842455682-9277…`) and `APPLE_CLIENT_IDS`
+(default: `com.jodealz.app`). PHP needs the `openssl` and `curl` extensions and a
+CA bundle (standard on cPanel hosting).
 
-| Field | Google | Apple |
-|---|---|---|
-| `provider` | `"google"` | `"apple"` |
-| `id_token` | Google ID token (JWT) | Apple identity token (JWT) |
-| `authorization_code` | – | Apple auth code (optional, for revocation) |
-| `email`, `name`, `provider_id`, `profile_image` | untrusted hints | untrusted hints (Apple sends name/email only on first sign-in) |
-| `platform`, `guest_id` | `"mobile"`, guest id or null | same |
+### Still to do on the backend (optional)
+- **Apple token revocation on account deletion.** Apple asks apps to revoke Sign in
+  with Apple tokens when an account is deleted. This needs your Apple
+  "Sign in with Apple" private key (.p8) to create a client secret, so it isn't wired
+  up yet.
+- **Existing marketing opt-ins.** Devices registered before this change still have
+  `marketing_enabled = 1`. If you want everyone to re-consent, run
+  `UPDATE device_notification_preferences SET marketing_enabled = 0;` once.
 
-Verification:
-
-- **Google** — verify the JWT signature against `https://www.googleapis.com/oauth2/v3/certs`
-  (or use Google's PHP client `verifyIdToken`), and check
-  `iss ∈ {accounts.google.com, https://accounts.google.com}`,
-  `aud == 724842455682-9277p7oml8409inicouerru4ivl4ns0f.apps.googleusercontent.com` (the Web/server client),
-  `exp` in the future, `email_verified == true`. Use `sub` as the stable user id.
-- **Apple** — verify against `https://appleid.apple.com/auth/keys`, check
-  `iss == https://appleid.apple.com`, `aud == com.jodealz.app`, `exp`. Use `sub`
-  as the stable user id; the email may be a private relay address.
-
-Response: unchanged — `{"status":"success","token":"<session token>"}`.
-
-### 1.2 Account deletion — `POST /api/v1/auth/delete-account.php` (Critical)
-
-Called from **Profile → Delete Account** after the user confirms.
-
-- Headers: `Authorization: Bearer <token>`, `X-Auth-Token: <token>`
-- Body: `{"confirm": true}`
-- Must permanently delete the account and its personal data (profile, favorites,
-  activity, device registrations, push tokens), invalidate all sessions, and for
-  Apple users revoke the Apple token (`https://appleid.apple.com/auth/revoke`).
-- Success: HTTP 200 `{"status":"success"}`. Anything else shows an error in the app.
-- Data you must keep for legal reasons: keep it, and say so in the privacy policy.
-
-Also publish a **public web page** (e.g. `https://jodealz.online/delete-account`)
-that explains how to delete an account and lets signed-in users request it.
-Google Play requires this URL in the Data safety form.
-
-### 1.3 Notification preferences
-
-The app now treats promotional ("marketing") pushes as **opt-in**. Set the
-server-side default of `marketing_enabled` to `0` for new devices, and don't send
-promotional pushes to devices that haven't opted in (App Store Guideline 4.5.4).
-
-### 1.4 Device registration payload
-
-`/api/register-device.php` now receives device model/OS/network/timezone **only
-when the user opted in to usage data**; latitude/longitude are no longer sent.
-Make sure the endpoint accepts payloads without those fields.
-
-### 1.5 Push payloads
-
+### Push payloads
 `data.url` in FCM messages must be a `https://jodealz.online/...` URL or a
-relative path. Any other host is ignored and the app opens the home page.
-Android notifications now use channel **`jodealz_notifications_v2`** (it has the
-custom sound). If the server sets `android.notification.channel_id`, update it.
+relative path; other hosts are ignored. Android notifications use channel
+**`jodealz_notifications_v2`** (it has the custom sound) — if the server sets
+`android.notification.channel_id`, update it.
 
 ---
 
-## 2. Files to host on jodealz.online
+## 2. `.well-known` files (already in `public_html/.well-known/`)
 
-### 2.1 Android App Links — `https://jodealz.online/.well-known/assetlinks.json`
-
-Serve as `application/json`, HTTPS, no redirects. Get both SHA-256 values from
-Play Console → *Test and release → App integrity → App signing*.
-
-```json
-[
-  {
-    "relation": ["delegate_permission/common.handle_all_urls"],
-    "target": {
-      "namespace": "android_app",
-      "package_name": "com.jodealz.app",
-      "sha256_cert_fingerprints": [
-        "<PLAY APP SIGNING KEY SHA-256>",
-        "<UPLOAD KEY SHA-256>"
-      ]
-    }
-  }
-]
-```
-
-Check on a device: `adb shell pm get-app-links com.jodealz.app` (should say `verified`).
-
-### 2.2 iOS Universal Links — `https://jodealz.online/.well-known/apple-app-site-association`
-
-No file extension, served as `application/json`, HTTPS, no redirects.
-`TEAMID` is on developer.apple.com → Membership.
-
-```json
-{
-  "applinks": {
-    "details": [
-      {
-        "appIDs": ["TEAMID.com.jodealz.app"],
-        "components": [
-          { "/": "/admin/*", "exclude": true },
-          { "/": "/*" }
-        ]
-      }
-    ]
-  }
-}
-```
+- **`assetlinks.json`** — present for `com.jodealz.app` with two SHA-256
+  fingerprints. Make sure they are the **Play App Signing** key and your upload key
+  (Play Console → *Test and release → App integrity*). Verify on a device with
+  `adb shell pm get-app-links com.jodealz.app`.
+- **`apple-app-site-association`** — present for team `9JA89QQL32`
+  (now also set as `DEVELOPMENT_TEAM` in the Xcode project). It covers
+  `/deal.php*`, `/profile.php*`, `/category/*` and `/index.php*`; add other paths
+  (e.g. `/deals.php*`, `/`) if those links should open the app too. Serve it with
+  `Content-Type: application/json` and no redirects.
 
 ---
 
@@ -141,7 +75,7 @@ No file extension, served as `application/json`, HTTPS, no redirects.
 ### Apple Developer
 1. Identifier `com.jodealz.app` → enable **Push Notifications**, **Associated Domains**,
    **Sign in with Apple**.
-2. In Xcode → Runner → Signing & Capabilities, choose your team (sets `DEVELOPMENT_TEAM`).
+2. The Xcode project already uses team `9JA89QQL32`; check Signing & Capabilities shows no errors.
 3. Sign in with Apple → Services ID/keys only if the website also offers Apple login.
 
 ### Google Play Console
@@ -152,6 +86,8 @@ No file extension, served as `application/json`, HTTPS, no redirects.
 ---
 
 ## 4. Build commands
+
+CI builds run on Codemagic (`codemagic.yaml`, setup in `docs/CODEMAGIC.md`). Local equivalents:
 
 ```bash
 # Android (upload the .aab; upload build/symbols to Crashlytics via Firebase CLI if desired)
@@ -189,7 +125,7 @@ deletion **Yes** (in-app + web URL from §1.2); Advertising ID **not used**.
 
 ## 6. App Review notes (paste into App Store Connect / Play "App access")
 
-> JoDeals is a deals app for Jordan. Native features beyond the website:
+> JO-Dealz is a deals app for Jordan. Native features beyond the website:
 > native sign-in (email, Sign in with Apple, Google) with Face ID / fingerprint
 > unlock; native Profile, Settings and in-app **account deletion**
 > (Profile → Delete Account); a native, offline-capable deals feed with search and
@@ -207,7 +143,7 @@ deletion **Yes** (in-app + web URL from §1.2); Advertising ID **not used**.
 
 **Both**
 - [ ] Leaked password from the old `test_login.json` changed; history purged
-- [ ] §1.1 token verification and §1.2 deletion endpoint live and tested
+- [ ] Backend changes from §1 deployed; sign-in with Google + Apple and account deletion tested against production
 - [ ] Privacy policy updated (collection table above, deletion, retention, consent)
 - [ ] Reviewer demo account created and entered in both consoles
 - [ ] Test on real devices: first launch → onboarding → consent sheet → notification prompt;

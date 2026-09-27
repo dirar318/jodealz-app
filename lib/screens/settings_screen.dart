@@ -6,7 +6,7 @@ import 'package:jodeals/services/local_db_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:jodeals/services/anonymous_tracking_service.dart';
-import 'package:jodeals/main.dart' show JoDealsApp;
+import 'package:jodeals/main.dart' show JoDealzApp;
 import 'package:jodeals/theme/app_colors.dart';
 import 'package:jodeals/services/consent_service.dart';
 
@@ -90,7 +90,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _isArabic = langCode == 'ar';
     });
     // Propagate locale change to the entire app immediately
-    JoDealsApp.setLocale(langCode);
+    JoDealzApp.setLocale(langCode);
     _showSnackBar(_txt('تم تغيير اللغة بنجاح', 'Language updated successfully'));
   }
 

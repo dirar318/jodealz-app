@@ -1,0 +1,217 @@
+# Codemagic CI/CD for the JO-Dealz Flutter app.
+# Setup, secrets and first-run steps: docs/CODEMAGIC.md
+#
+# Workflows
+#   checks         analyze + tests on every push / pull request (no signing)
+#   android-release  signed .aab -> Google Play (internal track, draft)
+#   ios-release      signed .ipa -> App Store Connect (TestFlight)
+#
+# Nothing secret lives in this file. Signing keys, passwords and API keys come
+# from Codemagic "Code signing identities", "Integrations" and encrypted
+# environment variable groups referenced below.
+
+definitions:
+  flutter_version: &flutter_version 3.44.6   # keep in sync with local `flutter --version`
+
+  scripts:
+    - &pub_get
+      name: Get Flutter packages
+      script: flutter pub get
+
+    - &analyze
+      name: Static analysis
+      script: flutter analyze
+
+    - &test
+      name: Unit and widget tests
+      script: |
+        mkdir -p test-results
+        flutter test --machine > test-results/flutter.json
+      test_report: test-results/flutter.json
+
+    - &android_local_properties
+      name: Point Gradle at the Flutter SDK
+      script: echo "flutter.sdk=$HOME/programs/flutter" > "$CM_BUILD_DIR/android/local.properties"
+
+workflows:
+  # ---------------------------------------------------------------------------
+  checks:
+    name: Checks (analyze + test)
+    instance_type: linux_x2
+    max_build_duration: 30
+    environment:
+      flutter: *flutter_version
+    triggering:
+      events:
+        - push
+        - pull_request
+      branch_patterns:
+        - pattern: '*'
+          include: true
+      cancel_previous_builds: true
+    scripts:
+      - *pub_get
+      - *analyze
+      - *test
+
+  # ---------------------------------------------------------------------------
+  android-release:
+    name: Android release (Google Play)
+    instance_type: linux_x2
+    max_build_duration: 60
+    environment:
+      flutter: *flutter_version
+      java: 17
+      # Upload keystore added under Team settings > Code signing identities >
+      # Android keystores with this reference name. Codemagic exports
+      # CM_KEYSTORE_PATH, CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, CM_KEY_PASSWORD,
+      # which android/app/build.gradle.kts reads.
+      android_signing:
+        - jodealz_upload_keystore
+      groups:
+        - google_play          # GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        - firebase_optional    # FIREBASE_SERVICE_ACCOUNT_JSON (optional, Dart symbol upload)
+      vars:
+        PACKAGE_NAME: com.jodealz.app
+        GOOGLE_PLAY_TRACK: internal
+        FIREBASE_ANDROID_APP_ID: 1:724842455682:android:a0a31f16bc27a3ffbfca9b
+    triggering:
+      events:
+        - tag
+      tag_patterns:
+        - pattern: 'v*'
+          include: true
+    scripts:
+      - *android_local_properties
+      - *pub_get
+      - *analyze
+      - *test
+      - name: Compute build number
+        script: |
+          # Next versionCode = max(latest on Google Play, pubspec build number) + 1.
+          # The first ever upload has no Play history, so fall back to pubspec.
+          PUBSPEC_BUILD=$(grep -E '^version:' pubspec.yaml | sed -E 's/.*\+([0-9]+).*/\1/')
+          LATEST_PLAY=$(google-play get-latest-build-number --package-name "$PACKAGE_NAME" 2>/dev/null || echo 0)
+          case "$LATEST_PLAY" in ''|*[!0-9]*) LATEST_PLAY=0 ;; esac
+          if [ "$LATEST_PLAY" -ge "$PUBSPEC_BUILD" ]; then NEXT=$((LATEST_PLAY + 1)); else NEXT=$PUBSPEC_BUILD; fi
+          echo "pubspec=$PUBSPEC_BUILD play=$LATEST_PLAY -> versionCode=$NEXT"
+          echo "APP_BUILD_NUMBER=$NEXT" >> "$CM_ENV"
+      - name: Build Android App Bundle
+        script: |
+          flutter build appbundle --release \
+            --build-number="$APP_BUILD_NUMBER" \
+            --obfuscate \
+            --split-debug-info=build/app/outputs/symbols
+      - name: Verify the bundle is release-signed
+        script: |
+          AAB=build/app/outputs/bundle/release/app-release.aab
+          if ! jarsigner -verify "$AAB" | grep -q "jar verified"; then
+            echo "ERROR: $AAB is not signed. Check the android_signing reference." >&2; exit 1
+          fi
+          if keytool -printcert -jarfile "$AAB" | grep -q "CN=Android Debug"; then
+            echo "ERROR: $AAB is signed with a debug key." >&2; exit 1
+          fi
+          keytool -printcert -jarfile "$AAB" | grep -E "Owner:|SHA1:|SHA256:"
+      - name: Upload Dart symbols to Crashlytics (optional)
+        script: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]; then
+            echo "FIREBASE_SERVICE_ACCOUNT_JSON not set; skipping (stack traces stay obfuscated)."; exit 0
+          fi
+          echo "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$CM_BUILD_DIR/firebase-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$CM_BUILD_DIR/firebase-sa.json"
+          firebase crashlytics:symbols:upload --app="$FIREBASE_ANDROID_APP_ID" build/app/outputs/symbols \
+            || echo "warning: Dart symbol upload failed"
+          rm -f "$CM_BUILD_DIR/firebase-sa.json"
+    artifacts:
+      - build/app/outputs/bundle/release/*.aab
+      - build/app/outputs/mapping/release/mapping.txt
+      - build/app/outputs/symbols/**
+    publishing:
+      google_play:
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: $GOOGLE_PLAY_TRACK
+        # Required while the app has never been published (draft app on Play).
+        # Set to false once the first release is live to roll out directly.
+        submit_as_draft: true
+
+  # ---------------------------------------------------------------------------
+  ios-release:
+    name: iOS release (App Store Connect)
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    # App Store Connect API key added under Team settings > Integrations >
+    # Developer Portal with exactly this name.
+    integrations:
+      app_store_connect: JO-Dealz App Store Connect
+    environment:
+      flutter: *flutter_version
+      xcode: latest
+      cocoapods: default
+      # Fetches/creates the App Store distribution certificate and provisioning
+      # profile for com.jodealz.app via the integration above.
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.jodealz.app
+      groups:
+        - app_store            # APP_STORE_APPLE_ID (numeric app ID; recommended)
+        - firebase_optional    # FIREBASE_SERVICE_ACCOUNT_JSON (optional)
+      vars:
+        BUNDLE_ID: com.jodealz.app
+        FIREBASE_IOS_APP_ID: 1:724842455682:ios:cd5169a9414b2d18fca9b
+    triggering:
+      events:
+        - tag
+      tag_patterns:
+        - pattern: 'v*'
+          include: true
+    scripts:
+      - *pub_get
+      - *analyze
+      - *test
+      - name: Install CocoaPods dependencies
+        script: cd ios && pod install --repo-update
+      - name: Apply App Store signing to the Xcode project
+        script: xcode-project use-profiles
+      - name: Compute build number
+        script: |
+          # Next CFBundleVersion = max(latest on TestFlight, pubspec build number) + 1.
+          # APP_STORE_APPLE_ID = numeric "Apple ID" of the app (App Store Connect >
+          # App Information). Without it the pubspec build number is used.
+          PUBSPEC_BUILD=$(grep -E '^version:' pubspec.yaml | sed -E 's/.*\+([0-9]+).*/\1/')
+          LATEST_TF=0
+          if [ -n "$APP_STORE_APPLE_ID" ]; then
+            LATEST_TF=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" 2>/dev/null || echo 0)
+          else
+            echo "APP_STORE_APPLE_ID not set; using the pubspec build number."
+          fi
+          case "$LATEST_TF" in ''|*[!0-9]*) LATEST_TF=0 ;; esac
+          if [ "$LATEST_TF" -ge "$PUBSPEC_BUILD" ]; then NEXT=$((LATEST_TF + 1)); else NEXT=$PUBSPEC_BUILD; fi
+          echo "pubspec=$PUBSPEC_BUILD testflight=$LATEST_TF -> build=$NEXT"
+          echo "APP_BUILD_NUMBER=$NEXT" >> "$CM_ENV"
+      - name: Build IPA
+        script: |
+          flutter build ipa --release \
+            --build-number="$APP_BUILD_NUMBER" \
+            --export-options-plist=/Users/builder/export_options.plist \
+            --obfuscate \
+            --split-debug-info=build/ios/symbols
+      - name: Upload Dart symbols to Crashlytics (optional)
+        script: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]; then
+            echo "FIREBASE_SERVICE_ACCOUNT_JSON not set; skipping."; exit 0
+          fi
+          echo "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$CM_BUILD_DIR/firebase-sa.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$CM_BUILD_DIR/firebase-sa.json"
+          firebase crashlytics:symbols:upload --app="$FIREBASE_IOS_APP_ID" build/ios/symbols \
+            || echo "warning: Dart symbol upload failed"
+          rm -f "$CM_BUILD_DIR/firebase-sa.json"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+      - build/ios/symbols/**
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        submit_to_app_store: false

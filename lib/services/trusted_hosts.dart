@@ -1,4 +1,4 @@
-/// Hosts that belong to JoDeals. Session tokens, cookies and in-app
+/// Hosts that belong to JO-Dealz. Session tokens, cookies and in-app
 /// navigation are only ever applied to these hosts; everything else is
 /// opened outside the app.
 class TrustedHosts {
@@ -12,7 +12,7 @@ class TrustedHosts {
     return h == _rootDomain || h.endsWith('.$_rootDomain');
   }
 
-  /// True only for https URLs on a JoDeals host.
+  /// True only for https URLs on a JO-Dealz host.
   static bool isTrustedUrl(String url) {
     final uri = Uri.tryParse(url);
     if (uri == null) return false;

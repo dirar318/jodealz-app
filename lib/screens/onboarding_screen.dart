@@ -228,7 +228,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
                       // Welcome Title
                       Text(
-                        _txt(context, 'مرحباً بك في جو ديلز', 'Welcome to JoDeals'),
+                        _txt(context, 'مرحباً بك في جو ديلز', 'Welcome to JO-Dealz'),
                         style: titleStyle.copyWith(
                           fontSize: 26,
                           fontWeight: FontWeight.w800,

@@ -265,7 +265,7 @@ class WebViewContainerState extends State<WebViewContainer> with WidgetsBindingO
             _updateBackState();
 
             // Never inject scripts, session tokens or cookies into pages that
-            // are not served from a JoDeals host.
+            // are not served from a JO-Dealz host.
             if (!_isTrustedUrl(url)) {
               widget.onPageLoaded?.call();
               return;
@@ -900,7 +900,7 @@ class WebViewContainerState extends State<WebViewContainer> with WidgetsBindingO
     }
   }
 
-  /// Runs [js] only when the WebView currently shows a JoDeals page.
+  /// Runs [js] only when the WebView currently shows a JO-Dealz page.
   Future<void> _runOnTrustedPage(String js) async {
     final String? current = await _controller.currentUrl();
     if (current == null || !_isTrustedUrl(current)) return;
