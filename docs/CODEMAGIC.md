@@ -5,7 +5,7 @@
 | Workflow | Trigger | Machine | Output | Publishes to |
 |---|---|---|---|---|
 | `checks` | every push / PR | Linux | analyze + test report | — |
-| `android-release` | git tag `v*` or manual | Linux | signed `.aab`, R8 mapping, Dart symbols | Google Play **internal** track (draft) |
+| `android-release` | git tag `v*` or manual | Linux | signed `.aab`, R8 mapping, Dart symbols | Google Play **production** track (draft) |
 | `ios-release` | git tag `v*` or manual | Mac mini M2 | signed `.ipa`, dSYMs, Dart symbols | App Store Connect → **TestFlight** |
 
 Both release workflows run `flutter pub get`, `flutter analyze` and `flutter test`
@@ -90,7 +90,7 @@ integration).
   generated `export_options.plist`. Artifacts: `.ipa`, dSYMs, Xcode logs.
 
 ### Deploying
-- **Google Play:** Codemagic uploads to the **internal** track as a **draft**
+- **Google Play:** Codemagic uploads to the **production** track as a **draft**
   (`submit_as_draft: true`). **The very first `.aab` must be uploaded by hand** in
   Play Console (the API can't create the first release): download it from the
   Codemagic artifacts → Play Console → *Internal testing → Create release*. After the

@@ -3,7 +3,7 @@
 #
 # Workflows
 #   checks         analyze + tests on every push / pull request (no signing)
-#   android-release  signed .aab -> Google Play (internal track, draft)
+#   android-release  signed .aab -> Google Play (production track, draft)
 #   ios-release      signed .ipa -> App Store Connect (TestFlight)
 #
 # Nothing secret lives in this file. Signing keys, passwords and API keys come
@@ -73,7 +73,7 @@ workflows:
         - firebase_optional    # FIREBASE_SERVICE_ACCOUNT_JSON (optional, Dart symbol upload)
       vars:
         PACKAGE_NAME: com.jodealz.app
-        GOOGLE_PLAY_TRACK: internal
+        GOOGLE_PLAY_TRACK: production
         FIREBASE_ANDROID_APP_ID: 1:724842455682:android:a0a31f16bc27a3ffbfca9b
     triggering:
       events:
