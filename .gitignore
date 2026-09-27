@@ -24,3 +24,19 @@ android/app/build/
 
 # macOS
 .DS_Store
+# IntelliJ module files
+*.iml
+
+# Kotlin compiler daemon logs
+android/.kotlin/
+
+# iOS build artifacts
+ios/Flutter/Generated.xcconfig
+ios/Flutter/ephemeral/
+
+# Never commit credentials, keystores or personal data
+test_login.json
+testers.csv
+*.jks
+*.keystore
+android/key.properties

@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:jodeals/services/auth_token_store.dart';
 import 'package:http/http.dart' as http;
 
 /// A premium, robust client-side logging service that batches and transmits
@@ -76,8 +76,7 @@ class AppLogger {
     final url = Uri.parse('$_baseUrl/api/v1/logs.php');
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('jodeals_auth_token');
+      final token = await AuthTokenStore.read();
 
       final Map<String, String> headers = {
         'Content-Type': 'application/json',

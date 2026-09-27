@@ -6,9 +6,6 @@ import 'package:jodeals/services/cache_service.dart';
 import 'package:jodeals/widgets/optimized_image.dart';
 import 'package:jodeals/theme/app_colors.dart';
 import 'package:jodeals/theme/app_radius.dart';
-import 'package:jodeals/theme/app_spacing.dart';
-import 'package:jodeals/theme/app_typography.dart';
-import 'package:jodeals/theme/app_shadows.dart';
 
 class ErrorScreen extends StatefulWidget {
   final VoidCallback onRetry;

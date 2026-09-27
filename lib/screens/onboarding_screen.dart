@@ -1,21 +1,21 @@
+import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:video_player/video_player.dart';
 import 'package:jodeals/theme/app_colors.dart';
 import 'package:jodeals/theme/app_radius.dart';
-import 'package:jodeals/theme/app_spacing.dart';
-import 'package:jodeals/theme/app_typography.dart';
-import 'package:jodeals/widgets/app_button.dart';
 
 class OnboardingScreen extends StatefulWidget {
   final Future<bool> Function() onGoogleLogin;
+  final Future<bool> Function()? onAppleLogin;
   final VoidCallback onEmailLogin;
   final Future<void> Function() onGuestLogin;
 
   const OnboardingScreen({
     super.key,
     required this.onGoogleLogin,
+    this.onAppleLogin,
     required this.onEmailLogin,
     required this.onGuestLogin,
   });
@@ -257,6 +257,23 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         ),
                       ),
                       const SizedBox(height: 40),
+
+                      // Sign in with Apple (iOS, App Store Guideline 4.8)
+                      if (Platform.isIOS && widget.onAppleLogin != null) ...[
+                        _buildAuthButton(
+                          icon: const Icon(Icons.apple, color: Colors.white, size: 24),
+                          label: _txt(context, 'المتابعة باستخدام Apple', 'Continue with Apple'),
+                          backgroundColor: Colors.black,
+                          textColor: Colors.white,
+                          onPressed: () => _handleAction(() async {
+                            final success = await widget.onAppleLogin!();
+                            if (!success && mounted) {
+                              throw Exception('Sign in with Apple failed or was cancelled.');
+                            }
+                          }),
+                        ),
+                        const SizedBox(height: 14),
+                      ],
 
                       // Google Sign In Button
                       _buildAuthButton(

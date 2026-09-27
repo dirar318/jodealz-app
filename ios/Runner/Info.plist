@@ -2,21 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 	<dict>
-		<key>CFBundleURLTypes</key>
-		<array>
-			<dict>
-				<key>CFBundleTypeRole</key>
-				<string>Editor</string>
-				<key>CFBundleURLSchemes</key>
-				<array>
-					<string>com.googleusercontent.apps.13492427447-4g9tvg970h18rliqe2v0dfu5ftbcq8q0</string>
-				</array>
-			</dict>
-		</array>
-		<key>NSLocationWhenInUseUsageDescription</key>
-		<string>JoDeals requires access to your location to find deals and shops near you.</string>
-		<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-		<string>JoDeals requires access to your location to suggest deals near you.</string>
+		<key>CADisableMinimumFrameDurationOnPhone</key>
+		<true/>
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
@@ -27,68 +14,94 @@
 		<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 		<key>CFBundleInfoDictionaryVersion</key>
 		<string>6.0</string>
+		<key>CFBundleLocalizations</key>
+		<array>
+			<string>ar</string>
+			<string>en</string>
+		</array>
 		<key>CFBundleName</key>
 		<string>JoDeals</string>
-		<key>NSAppTransportSecurity</key>
-		<dict>
-			<key>NSAllowsArbitraryLoads</key>
-			<true/>
-			<key>NSAllowsArbitraryLoadsInWebContent</key>
-			<true/>
-		</dict>
-		<key>NSPhotoLibraryUsageDescription</key>
-		<string>JoDeals requires access to the photo library to upload profile images and receipts.</string>
-		<key>NSFaceIDUsageDescription</key>
-		<string>JoDeals requires Face ID to log you in quickly and securely.</string>
-		<key>NSCameraUsageDescription</key>
-		<string>JoDeals requires access to the camera to capture profile photos and receipts.</string>
-		<key>NSMicrophoneUsageDescription</key>
-		<string>JoDeals requires access to the microphone for media content upload.</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
 		<key>CFBundleShortVersionString</key>
 		<string>$(FLUTTER_BUILD_NAME)</string>
 		<key>CFBundleSignature</key>
 		<string>????</string>
+		<key>CFBundleURLTypes</key>
+		<array>
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<!-- Reversed GIDClientID. Both values must come from the same iOS OAuth client. -->
+					<string>com.googleusercontent.apps.13492427447-4g9tvg970h18rliqe2v0dfu5ftbcq8q0</string>
+				</array>
+			</dict>
+		</array>
 		<key>CFBundleVersion</key>
 		<string>$(FLUTTER_BUILD_NUMBER)</string>
-		<key>LSRequiresIPhoneOS</key>
-		<true/>
-		<key>UILaunchStoryboardName</key>
-		<string>LaunchScreen</string>
-		<key>UIMainStoryboardFile</key>
-		<string>Main</string>
-		<key>UISupportedInterfaceOrientations</key>
-		<array>
-			<string>UIInterfaceOrientationPortrait</string>
-			<string>UIInterfaceOrientationLandscapeLeft</string>
-			<string>UIInterfaceOrientationLandscapeRight</string>
-		</array>
-		<key>UISupportedInterfaceOrientations~ipad</key>
-		<array>
-			<string>UIInterfaceOrientationPortrait</string>
-			<string>UIInterfaceOrientationPortraitUpsideDown</string>
-			<string>UIInterfaceOrientationLandscapeLeft</string>
-			<string>UIInterfaceOrientationLandscapeRight</string>
-		</array>
-		<key>CADisableMinimumFrameDurationOnPhone</key>
-		<true/>
-		<key>UIApplicationSupportsIndirectInputEvents</key>
-		<true/>
+		<!-- iOS OAuth client used by Google Sign-In (read by the GoogleSignIn SDK). -->
+		<key>GIDClientID</key>
+		<string>13492427447-4g9tvg970h18rliqe2v0dfu5ftbcq8q0.apps.googleusercontent.com</string>
+		<!-- Only standard HTTPS/TLS is used: exempt from export-compliance documentation. -->
+		<key>ITSAppUsesNonExemptEncryption</key>
+		<false/>
 		<key>LSApplicationQueriesSchemes</key>
 		<array>
-			<string>https</string>
-			<string>http</string>
 			<string>tel</string>
 			<string>mailto</string>
-			<string>whatsapp</string>
 			<string>sms</string>
+			<string>whatsapp</string>
 		</array>
+		<key>LSRequiresIPhoneOS</key>
+		<true/>
+		<!-- English fallbacks; localized in en.lproj / ar.lproj InfoPlist.strings. -->
+		<key>NSCameraUsageDescription</key>
+		<string>JoDeals uses the camera so you can take a profile photo or photograph a receipt to upload.</string>
+		<key>NSFaceIDUsageDescription</key>
+		<string>JoDeals uses Face ID so you can sign in quickly and securely.</string>
+		<key>NSLocationWhenInUseUsageDescription</key>
+		<string>JoDeals uses your location while you use the app to show deals and shops near you.</string>
+		<key>NSPhotoLibraryUsageDescription</key>
+		<string>JoDeals uses your photo library so you can choose a profile photo or receipt to upload.</string>
+		<key>UIApplicationSceneManifest</key>
+		<dict>
+			<key>UIApplicationSupportsMultipleScenes</key>
+			<false/>
+			<key>UISceneConfigurations</key>
+			<dict>
+				<key>UIWindowSceneSessionRoleApplication</key>
+				<array>
+					<dict>
+						<key>UISceneClassName</key>
+						<string>UIWindowScene</string>
+						<key>UISceneConfigurationName</key>
+						<string>flutter</string>
+						<key>UISceneDelegateClassName</key>
+						<string>FlutterSceneDelegate</string>
+						<key>UISceneStoryboardFile</key>
+						<string>Main</string>
+					</dict>
+				</array>
+			</dict>
+		</dict>
+		<key>UIApplicationSupportsIndirectInputEvents</key>
+		<true/>
 		<key>UIBackgroundModes</key>
 		<array>
 			<string>remote-notification</string>
 		</array>
+		<key>UILaunchStoryboardName</key>
+		<string>LaunchScreen</string>
+		<key>UIMainStoryboardFile</key>
+		<string>Main</string>
 		<key>UIStatusBarHidden</key>
 		<false/>
+		<!-- The app is portrait-only (enforced in main.dart as well). -->
+		<key>UISupportedInterfaceOrientations</key>
+		<array>
+			<string>UIInterfaceOrientationPortrait</string>
+		</array>
 	</dict>
 </plist>

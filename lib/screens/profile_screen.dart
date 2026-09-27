@@ -4,18 +4,20 @@ import 'package:jodeals/services/local_db_service.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:jodeals/theme/app_colors.dart';
 import 'package:jodeals/theme/app_radius.dart';
-import 'package:jodeals/theme/app_spacing.dart';
-import 'package:jodeals/theme/app_typography.dart';
-import 'package:jodeals/theme/app_shadows.dart';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:jodeals/services/auth_token_store.dart';
 
 class ProfileScreen extends StatefulWidget {
   final String baseUrl;
   final VoidCallback onLogout;
+  final VoidCallback? onAccountDeleted;
 
   const ProfileScreen({
     super.key,
     required this.baseUrl,
     required this.onLogout,
+    this.onAccountDeleted,
   });
 
   @override
@@ -80,6 +82,76 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   String _txt(String ar, String en) => _isArabic ? ar : en;
+
+  bool _isDeleting = false;
+
+  /// In-app account deletion (App Store 5.1.1(v), Google Play account
+  /// deletion policy). The backend endpoint must permanently delete the
+  /// account and associated personal data.
+  Future<void> _confirmDeleteAccount() async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text(_txt('حذف الحساب نهائياً؟', 'Delete your account?'),
+            style: const TextStyle(fontWeight: FontWeight.bold)),
+        content: Text(_txt(
+          'سيتم حذف حسابك وبياناتك الشخصية (الملف الشخصي، المفضلة، سجل النشاط) بشكل نهائي ولا يمكن التراجع عن ذلك.',
+          'Your account and personal data (profile, favorites, activity history) will be permanently deleted. This cannot be undone.',
+        )),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(_txt('إلغاء', 'Cancel')),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: Text(_txt('حذف نهائي', 'Delete permanently')),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _isDeleting = true);
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    try {
+      final token = await AuthTokenStore.read();
+      if (token == null) throw Exception('Not signed in');
+      final response = await http.post(
+        Uri.parse('${widget.baseUrl}/api/v1/auth/delete-account.php'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'X-Auth-Token': token,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: json.encode({'confirm': true}),
+      ).timeout(const Duration(seconds: 15));
+
+      final Map<String, dynamic>? data =
+          response.body.isNotEmpty ? json.decode(response.body) as Map<String, dynamic>? : null;
+      if (response.statusCode == 200 && data?['status'] == 'success') {
+        (widget.onAccountDeleted ?? widget.onLogout)();
+        navigator.pop();
+        return;
+      }
+      throw Exception('Delete failed (${response.statusCode})');
+    } catch (e) {
+      debugPrint('ProfileScreen: account deletion failed: $e');
+      messenger.showSnackBar(SnackBar(
+        content: Text(_txt(
+          'تعذر حذف الحساب. يرجى المحاولة لاحقاً.',
+          'Could not delete your account. Please try again later.',
+        )),
+        backgroundColor: Colors.red,
+      ));
+    } finally {
+      if (mounted) setState(() => _isDeleting = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -354,6 +426,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   widget.onLogout();
                                   Navigator.pop(context);
                                 },
+                                textColor: Colors.red,
+                              ),
+                              const Divider(height: 1),
+                              _buildMenuItem(
+                                icon: Icons.delete_forever_outlined,
+                                title: _txt('حذف الحساب', 'Delete Account'),
+                                iconColor: Colors.red,
+                                onTap: _isDeleting ? () {} : _confirmDeleteAccount,
                                 textColor: Colors.red,
                               ),
                             ] else ...[

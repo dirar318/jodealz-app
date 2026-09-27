@@ -8,10 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:jodeals/services/anonymous_tracking_service.dart';
 import 'package:jodeals/main.dart' show JoDealsApp;
 import 'package:jodeals/theme/app_colors.dart';
-import 'package:jodeals/theme/app_radius.dart';
-import 'package:jodeals/theme/app_spacing.dart';
-import 'package:jodeals/theme/app_typography.dart';
-import 'package:jodeals/theme/app_shadows.dart';
+import 'package:jodeals/services/consent_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   final String baseUrl;
@@ -32,7 +29,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _newDealsEnabled = true;
   bool _discountsEnabled = true;
   bool _categoryUpdatesEnabled = true;
-  bool _marketingEnabled = true;
+  bool _marketingEnabled = false;
+  bool _analyticsEnabled = false;
 
   @override
   void initState() {
@@ -45,6 +43,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final lang = prefs.getString('jodeals_app_lang') ?? 'ar';
     final info = await PackageInfo.fromPlatform();
     final prefsMap = AnonymousTrackingService().getPreferences();
+    final analytics = await ConsentService.analyticsAllowed();
     if (mounted) {
       setState(() {
         _isArabic = lang == 'ar';
@@ -52,7 +51,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _newDealsEnabled = (prefsMap['new_deals_enabled'] ?? 1) == 1;
         _discountsEnabled = (prefsMap['discounts_enabled'] ?? 1) == 1;
         _categoryUpdatesEnabled = (prefsMap['category_updates_enabled'] ?? 1) == 1;
-        _marketingEnabled = (prefsMap['marketing_enabled'] ?? 1) == 1;
+        _marketingEnabled = (prefsMap['marketing_enabled'] ?? 0) == 1;
+        _analyticsEnabled = analytics;
       });
     }
   }
@@ -247,6 +247,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       subtitle: Text(_txt('أخبار تسويقية وتحديثات مهمة حول الخدمة', 'Marketing news and service updates'), style: GoogleFonts.cairo(fontSize: 10, color: subtextColor)),
                       value: _marketingEnabled,
                       onChanged: (val) => _updateNotificationPreference('marketing', val),
+                    ),
+                    const Divider(height: 1),
+                    SwitchListTile(
+                      activeThumbColor: brandRed,
+                      title: Text(_txt('مشاركة بيانات الاستخدام', 'Share Usage Data'), style: GoogleFonts.cairo(fontSize: 13, color: textColor, fontWeight: FontWeight.w600)),
+                      subtitle: Text(_txt('الصفحات والعروض التي تشاهدها وأداء التطبيق لتحسين الخدمة', 'Pages and deals you view and app performance, to improve the service'), style: GoogleFonts.cairo(fontSize: 10, color: subtextColor)),
+                      value: _analyticsEnabled,
+                      onChanged: (val) async {
+                        setState(() => _analyticsEnabled = val);
+                        await ConsentService.setAnalytics(val);
+                        await AnonymousTrackingService().onConsentChanged();
+                      },
                     ),
                   ],
                 ),

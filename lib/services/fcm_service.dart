@@ -7,6 +7,8 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:jodeals/firebase_options.dart';
+import 'package:jodeals/services/auth_token_store.dart';
+import 'package:jodeals/services/trusted_hosts.dart';
 
 // Top-level function for handling background Firebase messages.
 // Must be annotated with @pragma('vm:entry-point') for background execution isolates.
@@ -29,44 +31,48 @@ class FCMService {
   static final ValueNotifier<String?> tokenNotifier = ValueNotifier<String?>(null);
   static Function(RemoteMessage message)? _onForegroundMessage;
 
+  /// Must be called from main() before runApp.
+  static void registerBackgroundHandler() {
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  }
+
+  /// Shows the system notification prompt (Android 13+ / iOS). Call it when
+  /// the user has context for it, e.g. right after onboarding.
+  static Future<void> requestPermission() async {
+    try {
+      final NotificationSettings settings = await _messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      debugPrint('FCM: Notification permission: ${settings.authorizationStatus}');
+    } catch (e) {
+      debugPrint('FCM: Error requesting permission: $e');
+    }
+  }
+
   // Initialize notifications and return true if successful
   static Future<bool> initialize({
     required Function(String url) onNotificationClicked,
     Function(RemoteMessage message)? onForegroundMessage,
+    bool requestPermission = true,
   }) async {
     try {
       _onForegroundMessage = onForegroundMessage;
 
-      // Register background handler
-      FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-
       // 1. Request Notification Permissions (Android 13+ and iOS)
-      NotificationSettings settings = await _messaging.requestPermission(
-        alert: true,
-        announcement: false,
-        badge: true,
-        carPlay: false,
-        criticalAlert: false,
-        provisional: false,
-        sound: true,
-      );
-
-      if (settings.authorizationStatus == AuthorizationStatus.denied) {
-        debugPrint('FCM: User denied notification permissions');
-      } else {
-        debugPrint('FCM: Notification permissions granted: ${settings.authorizationStatus}');
+      if (requestPermission) {
+        await FCMService.requestPermission();
       }
 
       // 2. Fetch and register device FCM Token
       _fcmToken = await _messaging.getToken();
       tokenNotifier.value = _fcmToken;
-      debugPrint('FCM: Device Token: $_fcmToken');
 
       // 3. Listen to token refresh
       _messaging.onTokenRefresh.listen((token) async {
         _fcmToken = token;
         tokenNotifier.value = token;
-        debugPrint('FCM: Token refreshed: $token');
         await updateTokenOnBackend(token);
       });
 
@@ -120,7 +126,7 @@ class FCMService {
         deviceId = iosInfo.identifierForVendor ?? 'UnknowniOSDevice';
       }
 
-      final authToken = prefs.getString('jodeals_auth_token');
+      final authToken = await AuthTokenStore.read();
 
       if (deviceId.isNotEmpty) {
         debugPrint('FCM: Dispatching refreshed token to backend for device: $deviceId');
@@ -145,26 +151,10 @@ class FCMService {
     }
   }
 
-  // Extract navigation payload and route to WebView
+  // Extract navigation payload and route to WebView. Only JoDeals URLs are
+  // honoured; anything else falls back to the home page.
   static void handleMessagePayload(RemoteMessage message, Function(String url) callback) {
-    debugPrint('FCM: Payload data: ${message.data}');
-    // Check if the payload contains a "url" key
     final String? targetUrl = message.data['url'];
-    if (targetUrl != null && targetUrl.isNotEmpty) {
-      String target = targetUrl;
-      // Normalize relative paths to absolute URLs using baseUrl
-      if (!target.startsWith('http://') && !target.startsWith('https://')) {
-        if (target.startsWith('/')) {
-          target = '$baseUrl$target';
-        } else {
-          target = '$baseUrl/$target';
-        }
-      }
-      // Direct Webview navigation
-      callback(target);
-    } else {
-      // Default to home page
-      callback(baseUrl);
-    }
+    callback(TrustedHosts.sanitize(targetUrl ?? baseUrl));
   }
 }

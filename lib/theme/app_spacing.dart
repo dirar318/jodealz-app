@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 
 /// Centralized Spacing system matching website 8-point spacing scale
 /// Source of truth: D:\Projects\Personal\JoDeals\public_html\assets\css\mobile-design-system.css

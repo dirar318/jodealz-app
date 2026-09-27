@@ -53,6 +53,12 @@ class FakePlatformWebViewController extends PlatformWebViewController {
   Future<bool> canGoBack() async => false;
 
   @override
+  Future<String?> getUserAgent() async => 'FakeWebView';
+
+  @override
+  Future<String?> currentUrl() async => null;
+
+  @override
   Future<void> reload() async {}
 
   @override
@@ -84,6 +90,9 @@ class FakePlatformNavigationDelegate extends PlatformNavigationDelegate {
   ) async {}
 
   @override
+  Future<void> setOnUrlChange(void Function(UrlChange change) onUrlChange) async {}
+
+  @override
   Future<void> setOnNavigationRequest(
     FutureOr<NavigationDecision> Function(NavigationRequest request) onNavigationRequest,
   ) async {}
@@ -103,7 +112,8 @@ void main() {
     ));
 
     // Verify that the splash screen logo/brand title is displayed
-    expect(find.text('JoDeals'), findsOneWidget);
+    // initialLang 'ar' renders the Arabic brand name.
+    expect(find.text('جو ديلز'), findsOneWidget);
 
     // Run out all pending timers (splash animations/timeouts) so tests clean up successfully
     await tester.pump(const Duration(seconds: 10));

@@ -13,19 +13,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:jodeals/screens/error_screen.dart';
-import 'package:webview_refresher/webview_refresher.dart';
+import 'package:jodeals/screens/native_deals_feed.dart';
 import 'package:jodeals/services/fcm_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:sign_in_with_apple/sign_in_with_apple.dart';
+import 'package:jodeals/services/auth_token_store.dart';
+import 'package:jodeals/services/trusted_hosts.dart';
 import 'package:jodeals/screens/auth/auth_screen_args.dart';
 import 'package:jodeals/widgets/skeleton_loader.dart';
 import 'package:jodeals/services/cache_service.dart';
+import 'package:jodeals/services/local_db_service.dart';
 import 'package:jodeals/services/anonymous_tracking_service.dart';
 import 'package:jodeals/theme/app_colors.dart';
 import 'package:jodeals/theme/app_radius.dart';
-import 'package:jodeals/theme/app_spacing.dart';
-import 'package:jodeals/theme/app_typography.dart';
 
 class WebViewContainer extends StatefulWidget {
   final String initialUrl;
@@ -41,11 +43,11 @@ class WebViewContainer extends StatefulWidget {
   State<WebViewContainer> createState() => WebViewContainerState();
 }
 
-class WebViewContainerState extends State<WebViewContainer> {
+class WebViewContainerState extends State<WebViewContainer> with WidgetsBindingObserver {
   late final WebViewController _controller;
   final ValueNotifier<double> _progressNotifier = ValueNotifier<double>(0.0);
   final ValueNotifier<bool> _loadingNotifier = ValueNotifier<bool>(true);
-  StreamSubscription<ConnectivityResult>? _connectivitySubscription;
+  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
   Timer? _loadingTimeoutTimer;
   Timer? _slowConnectionTimer;
   int _retryCount = 0;
@@ -68,8 +70,35 @@ class WebViewContainerState extends State<WebViewContainer> {
     return '${baseUri.scheme}://${baseUri.host}${baseUri.hasPort ? ":${baseUri.port}" : ""}';
   }
 
+  static bool _isOfflineResult(List<ConnectivityResult> results) =>
+      results.isEmpty || results.every((r) => r == ConnectivityResult.none);
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _recoverIfWebViewWasKilled();
+    }
+  }
+
+  /// The OS may kill the WebView's renderer (Android) or content process (iOS)
+  /// while the app is in the background, leaving a blank page. Reload in that case.
+  Future<void> _recoverIfWebViewWasKilled() async {
+    if (_isOffline) return;
+    try {
+      final Object len = await _controller.runJavaScriptReturningResult(
+        'document.body ? document.body.innerHTML.length : 0',
+      );
+      if (int.tryParse(len.toString()) == 0) {
+        _controller.reload();
+      }
+    } catch (_) {
+      _controller.reload();
+    }
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     FCMService.tokenNotifier.removeListener(_onFcmTokenChanged);
     _loadingTimeoutTimer?.cancel();
     _slowConnectionTimer?.cancel();
@@ -82,6 +111,7 @@ class WebViewContainerState extends State<WebViewContainer> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     FCMService.baseUrl = _baseUrl;
     FCMService.tokenNotifier.addListener(_onFcmTokenChanged);
     _loadLanguagePreference();
@@ -91,11 +121,11 @@ class WebViewContainerState extends State<WebViewContainer> {
     // only needed when the user taps "Sign in with Google". Delaying it keeps
     // initState lightweight and avoids competing with the WebView's first load.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future.delayed(const Duration(seconds: 3), _initGoogleSignIn);
+      Future.delayed(const Duration(seconds: 3), _ensureGoogleSignInInitialized);
     });
 
-    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((ConnectivityResult result) {
-      if (result == ConnectivityResult.none) {
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((List<ConnectivityResult> result) {
+      if (_isOfflineResult(result)) {
         if (!_isOffline) {
           setState(() {
             _isOffline = true;
@@ -116,7 +146,7 @@ class WebViewContainerState extends State<WebViewContainer> {
 
   Future<void> _checkConnectivity() async {
     var result = await Connectivity().checkConnectivity();
-    if (result == ConnectivityResult.none) {
+    if (_isOfflineResult(result) && mounted) {
       setState(() {
         _isOffline = true;
       });
@@ -168,12 +198,7 @@ class WebViewContainerState extends State<WebViewContainer> {
   void _initWebViewController() {
     _controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
-      ..setBackgroundColor(const Color(0xFFF8FAFC))
-      ..setUserAgent(
-        Platform.isAndroid
-            ? "Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36 JoDealsApp/1.0"
-            : "Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1 JoDealsApp/1.0",
-      );
+      ..setBackgroundColor(const Color(0xFFF8FAFC));
 
     if (_controller.platform is AndroidWebViewController) {
       final androidController = _controller.platform as AndroidWebViewController;
@@ -185,6 +210,11 @@ class WebViewContainerState extends State<WebViewContainer> {
           onProgress: (int progress) {
             _progressNotifier.value = progress / 100.0;
             _loadingNotifier.value = progress < 100;
+          },
+          // Fires for client-side (pushState) navigation too, which
+          // onPageStarted/onPageFinished miss; keeps system back accurate.
+          onUrlChange: (UrlChange change) {
+            _updateBackState();
           },
           onPageStarted: (String url) {
             _pageLoadStartTime = DateTime.now();
@@ -234,6 +264,13 @@ class WebViewContainerState extends State<WebViewContainer> {
             }
             _updateBackState();
 
+            // Never inject scripts, session tokens or cookies into pages that
+            // are not served from a JoDeals host.
+            if (!_isTrustedUrl(url)) {
+              widget.onPageLoaded?.call();
+              return;
+            }
+
             try {
               await _controller.runJavaScript('''
                 (function() {
@@ -262,15 +299,15 @@ class WebViewContainerState extends State<WebViewContainer> {
             }
 
             try {
-              final prefs = await SharedPreferences.getInstance();
-              final savedToken = prefs.getString('jodeals_auth_token');
+              final savedToken = await AuthTokenStore.read();
               if (savedToken != null && savedToken.isNotEmpty) {
+                final String jsToken = jsonEncode(savedToken);
                 await _controller.runJavaScript(
-                  "if (localStorage.getItem('jodeals_auth_token') !== '$savedToken') { "
-                  "  localStorage.setItem('jodeals_auth_token', '$savedToken'); "
+                  "if (localStorage.getItem('jodeals_auth_token') !== $jsToken) { "
+                  "  localStorage.setItem('jodeals_auth_token', $jsToken); "
                   "}"
                 );
-                
+
                 final String secureFlag = _baseUrl.startsWith('https') ? '; Secure' : '';
                 String domainParam = '';
                 final Uri targetUri = Uri.parse(_baseUrl);
@@ -283,7 +320,7 @@ class WebViewContainerState extends State<WebViewContainer> {
                   domainParam = '; domain=.$domain';
                 }
                 await _controller.runJavaScript(
-                  "document.cookie = 'remember_token=$savedToken; path=/; max-age=2592000$secureFlag$domainParam';"
+                  "document.cookie = ${jsonEncode('remember_token=${Uri.encodeComponent(savedToken)}; path=/; max-age=2592000$secureFlag$domainParam; SameSite=Lax')};"
                 );
 
                 await _syncRememberTokenCookie(savedToken);
@@ -333,6 +370,26 @@ class WebViewContainerState extends State<WebViewContainer> {
           },
           onNavigationRequest: (NavigationRequest request) async {
             final String url = request.url;
+            final bool isOwnUrl = url.startsWith('jodeals:') || _isTrustedUrl(url);
+
+            if (!isOwnUrl) {
+              if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                await _launchExternalUrl(url);
+                return NavigationDecision.prevent;
+              }
+              // Third-party pages open outside the app so they never share the
+              // app's WebView session. Sub-frames (embeds) are left alone.
+              if (request.isMainFrame) {
+                await _launchExternalUrl(url);
+                return NavigationDecision.prevent;
+              }
+              return NavigationDecision.navigate;
+            }
+
+            if (url.contains('/auth-apple.php') || url.contains('jodeals://auth-apple') || url.contains('jodeals:auth-apple')) {
+              handleAppleSignIn();
+              return NavigationDecision.prevent;
+            }
 
             if (url.contains('/auth-google.php') || url.contains('jodeals://auth-google') || url.contains('jodeals:auth-google')) {
               handleGoogleSignIn();
@@ -400,18 +457,15 @@ class WebViewContainerState extends State<WebViewContainer> {
               return NavigationDecision.prevent;
             }
 
-            if (!url.startsWith('http://') && !url.startsWith('https://')) {
-              await _launchExternalUrl(url);
+            // The plain deals listing opens the native, offline-capable feed.
+            // Filtered/paginated listings (extra query params) stay on the web.
+            if (_isPlainDealsListing(url)) {
+              _showNativeDealsFeed();
               return NavigationDecision.prevent;
             }
 
-            if (url.contains('wa.me') ||
-                url.contains('api.whatsapp.com') ||
-                url.contains('play.google.com') ||
-                url.contains('apps.apple.com') ||
-                url.contains('maps.google.com') ||
-                url.contains('maps.apple.com')) {
-              await _launchExternalUrl(url);
+            if (url.startsWith('jodeals:')) {
+              // Unknown app-scheme route: stay on the current page.
               return NavigationDecision.prevent;
             }
 
@@ -427,7 +481,7 @@ class WebViewContainerState extends State<WebViewContainer> {
 
     if (_controller.platform is AndroidWebViewController) {
       final androidController = _controller.platform as AndroidWebViewController;
-      androidController.setMixedContentMode(MixedContentMode.alwaysAllow);
+      androidController.setMixedContentMode(MixedContentMode.neverAllow);
 
       androidController.setGeolocationPermissionsPromptCallbacks(
         onShowPrompt: (request) async {
@@ -444,17 +498,50 @@ class WebViewContainerState extends State<WebViewContainer> {
       });
     }
 
+    _setUserAgentAndLoad();
+  }
+
+  /// Keeps the real WebView user agent (Google blocks spoofed embedded
+  /// browsers) and appends an app marker the website can detect.
+  Future<void> _setUserAgentAndLoad() async {
+    try {
+      final String? defaultUa = await _controller.getUserAgent();
+      final info = await PackageInfo.fromPlatform();
+      await _controller.setUserAgent('${defaultUa ?? ''} JoDealsApp/${info.version}'.trim());
+    } catch (e) {
+      debugPrint('WebViewContainer: Could not set user agent: $e');
+    }
     _controller.loadRequest(Uri.parse(widget.initialUrl));
   }
 
+  bool _isTrustedUrl(String url) {
+    if (TrustedHosts.isTrustedUrl(url)) return true;
+    // Also allow the configured base host (e.g. a staging server).
+    final uri = Uri.tryParse(url);
+    final base = Uri.parse(_baseUrl);
+    return uri != null && uri.scheme == base.scheme && uri.host == base.host;
+  }
+
   Future<void> _launchExternalUrl(String url) async {
-    final Uri uri = Uri.parse(url);
+    Uri? uri = Uri.tryParse(url);
+    if (uri == null) return;
     try {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      } else {
-        debugPrint('Could not launch external URL: $url');
+      // Android intent:// links: try the intent, then its browser fallback.
+      if (uri.scheme == 'intent') {
+        final fallback = RegExp(r'S\.browser_fallback_url=([^;]+)').firstMatch(url)?.group(1);
+        final scheme = RegExp(r'scheme=([^;]+)').firstMatch(url)?.group(1);
+        if (scheme != null) {
+          final direct = Uri.tryParse(url.replaceFirst('intent:', '$scheme:').split('#Intent').first);
+          if (direct != null && await launchUrl(direct, mode: LaunchMode.externalApplication)) return;
+        }
+        if (fallback != null) {
+          uri = Uri.parse(Uri.decodeComponent(fallback));
+        } else {
+          return;
+        }
       }
+      final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!launched) debugPrint('Could not launch external URL: $url');
     } catch (e) {
       debugPrint('Error launching URL: $e');
     }
@@ -492,6 +579,10 @@ class WebViewContainerState extends State<WebViewContainer> {
         'onLogout': () {
           handleNativeLogout();
         },
+        'onAccountDeleted': () {
+          LocalDbService.instance.clearUserProfile();
+          handleNativeLogout(message: _txt('تم حذف حسابك نهائياً.', 'Your account has been deleted.'));
+        },
       },
     ).then((_) {
       _loadSavedLanguageOrReload();
@@ -508,6 +599,31 @@ class WebViewContainerState extends State<WebViewContainer> {
     ).then((_) {
       _loadSavedLanguageOrReload();
     });
+  }
+
+  bool _isPlainDealsListing(String url) {
+    if (url.startsWith('jodeals://deals') || url == 'jodeals:deals') return true;
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.path != '/deals.php') return false;
+    const allowedParams = {'lang', 'app'};
+    return uri.queryParameters.keys.every(allowedParams.contains);
+  }
+
+  Future<void> _showNativeDealsFeed() async {
+    final token = await AuthTokenStore.read();
+    if (!mounted) return;
+    Navigator.of(context).push(MaterialPageRoute(
+      settings: const RouteSettings(name: '/deals'),
+      builder: (routeContext) => NativeDealsFeedScreen(
+        baseUrl: _baseUrl,
+        authToken: token,
+        isArabic: _isArabic,
+        onDealTap: (dealUrl) {
+          Navigator.of(routeContext).pop();
+          loadUrl(dealUrl);
+        },
+      ),
+    ));
   }
 
   Future<void> _loadSavedLanguageOrReload() async {
@@ -530,13 +646,12 @@ class WebViewContainerState extends State<WebViewContainer> {
     final Color scaffoldBgColor = AppColors.bg(isDark);
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
+      // Edge-to-edge: only icon brightness is set; bar colours are
+      // deprecated on Android 15+ and the Scaffold paints behind the bars.
       value: const SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
         statusBarIconBrightness: Brightness.dark,
         statusBarBrightness: Brightness.light,
-        systemNavigationBarColor: AppColors.lightBg,
         systemNavigationBarIconBrightness: Brightness.dark,
-        systemNavigationBarDividerColor: Colors.transparent,
       ),
       child: PopScope(
         canPop: !_canGoBack,
@@ -549,8 +664,10 @@ class WebViewContainerState extends State<WebViewContainer> {
         },
         child: Scaffold(
           backgroundColor: scaffoldBgColor,
+          // Keep web content clear of the status bar, display cutouts and
+          // the gesture/navigation bar on every device.
           body: SafeArea(
-            top: false,
+            top: true,
             bottom: true,
             child: Stack(
               children: [
@@ -616,7 +733,7 @@ class WebViewContainerState extends State<WebViewContainer> {
                           onRetry: () async {
                             final scaffoldMessenger = ScaffoldMessenger.of(context);
                             var result = await Connectivity().checkConnectivity();
-                            if (result != ConnectivityResult.none) {
+                            if (!_isOfflineResult(result)) {
                               setState(() {
                                 _isOffline = false;
                               });
@@ -771,19 +888,23 @@ class WebViewContainerState extends State<WebViewContainer> {
 
   Future<void> syncSessionToWebView(String token) async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('jodeals_auth_token', token);
+      await AuthTokenStore.write(token);
 
       await _syncRememberTokenCookie(token);
 
-      await _controller.runJavaScript(
-        "localStorage.setItem('jodeals_auth_token', '$token');"
-      );
+      await _runOnTrustedPage("localStorage.setItem('jodeals_auth_token', ${jsonEncode(token)});");
 
       debugPrint('WebViewContainer: Successfully synced session to WebView.');
     } catch (e) {
       debugPrint('WebViewContainer: Error syncing session to WebView: $e');
     }
+  }
+
+  /// Runs [js] only when the WebView currently shows a JoDeals page.
+  Future<void> _runOnTrustedPage(String js) async {
+    final String? current = await _controller.currentUrl();
+    if (current == null || !_isTrustedUrl(current)) return;
+    await _controller.runJavaScript(js);
   }
 
   Future<String?> getGuestId() async {
@@ -849,6 +970,7 @@ class WebViewContainerState extends State<WebViewContainer> {
           }
         },
         googleSignInHandler: handleGoogleSignIn,
+        appleSignInHandler: handleAppleSignIn,
         guestId: guestId,
       ),
     );
@@ -865,8 +987,7 @@ class WebViewContainerState extends State<WebViewContainer> {
       return;
     }
 
-    final prefs = await SharedPreferences.getInstance();
-    final savedToken = prefs.getString('jodeals_auth_token');
+    final savedToken = await AuthTokenStore.read();
     if (savedToken != null && savedToken.isNotEmpty) {
       debugPrint('WebViewContainer: Login successful, navigating to: $redirectUrl');
       await Future.delayed(const Duration(milliseconds: 100));
@@ -925,8 +1046,7 @@ class WebViewContainerState extends State<WebViewContainer> {
     );
 
     if (!mounted) return;
-    final prefs = await SharedPreferences.getInstance();
-    final savedToken = prefs.getString('jodeals_auth_token');
+    final savedToken = await AuthTokenStore.read();
     if (savedToken != null && savedToken.isNotEmpty) {
       debugPrint('WebViewContainer: Registration successful, navigating to: $redirectUrl');
       await Future.delayed(const Duration(milliseconds: 100));
@@ -936,51 +1056,64 @@ class WebViewContainerState extends State<WebViewContainer> {
     }
   }
 
-  Future<void> handleNativeLogout() async {
+  Future<void> handleNativeLogout({String? message}) async {
     final prefs = await SharedPreferences.getInstance();
-    final String? oldToken = prefs.getString('jodeals_auth_token');
-    
-    await prefs.remove('jodeals_auth_token');
+    final String? oldToken = await AuthTokenStore.read();
+
+    await AuthTokenStore.clear();
     await prefs.remove('last_registered_auth_token');
     await prefs.remove('last_registered_fcm_token');
-    
+
     final WebViewCookieManager cookieManager = WebViewCookieManager();
     await cookieManager.clearCookies();
-    
-    await _controller.runJavaScript("localStorage.removeItem('jodeals_auth_token');");
-    
+
+    try {
+      await _runOnTrustedPage("localStorage.removeItem('jodeals_auth_token');");
+    } catch (_) {}
+
     if (oldToken != null && oldToken.isNotEmpty) {
       await _handleLogoutSync(oldToken);
     }
-    
+
     _controller.loadRequest(Uri.parse(_baseUrl));
-    _showSnackBar(_txt('تم تسجيل الخروج بنجاح.', 'Logged out successfully.'));
+    _showSnackBar(message ?? _txt('تم تسجيل الخروج بنجاح.', 'Logged out successfully.'));
+  }
+
+  /// Non-reversible fingerprint of the auth token, used only to detect whether
+  /// the device was already registered for this session (FNV-1a, 32-bit).
+  static String _registrationKey(String? token) {
+    if (token == null || token.isEmpty) return 'GUEST';
+    int hash = 0x811c9dc5;
+    for (final int unit in token.codeUnits) {
+      hash ^= unit;
+      hash = (hash * 0x01000193) & 0xffffffff;
+    }
+    return 'u:${hash.toRadixString(16)}';
   }
 
   Future<void> _syncAuthAndRegisterDevice() async {
     try {
-      // ALWAYS read SharedPreferences first — localStorage is empty on every fresh WebView load
-      // (Android destroys WebView state when app is closed or process is killed).
-      final prefs = await SharedPreferences.getInstance();
-      final savedToken = prefs.getString('jodeals_auth_token');
+      // Always read the secure store first — localStorage is empty on every
+      // fresh WebView load (Android destroys WebView state when the process dies).
+      final savedToken = await AuthTokenStore.read();
 
       if (savedToken != null && savedToken.isNotEmpty) {
-        // Re-inject the persisted token into localStorage (WebView was freshly created)
-        await _controller.runJavaScript(
+        await _runOnTrustedPage(
           "if (!localStorage.getItem('jodeals_auth_token')) { "
-          "  localStorage.setItem('jodeals_auth_token', '${savedToken.replaceAll("'", "\\'")}'); "
+          "  localStorage.setItem('jodeals_auth_token', ${jsonEncode(savedToken)}); "
           "}"
         );
-        debugPrint('WebViewContainer: Token found in SharedPreferences, injected into localStorage.');
         await registerDeviceWithBackend(savedToken);
         return;
       }
 
-      // No token in SharedPreferences — double-check localStorage (e.g. web-only session)
+      // No stored token — double-check localStorage (e.g. web-only session)
+      final String? current = await _controller.currentUrl();
+      if (current == null || !_isTrustedUrl(current)) return;
       final result = await _controller.runJavaScriptReturningResult(
         "localStorage.getItem('jodeals_auth_token')"
       );
-      
+
       String? localToken;
       if (result is String) {
         String cleaned = result.trim();
@@ -992,20 +1125,17 @@ class WebViewContainerState extends State<WebViewContainer> {
       }
 
       if (localToken != null && localToken.isNotEmpty) {
-        // Token found in localStorage but not in SharedPreferences — sync it
-        debugPrint('WebViewContainer: Token found in localStorage, saving to SharedPreferences.');
-        await prefs.setString('jodeals_auth_token', localToken);
+        await AuthTokenStore.write(localToken);
         await registerDeviceWithBackend(localToken);
       } else {
-        // No token anywhere — user is genuinely not logged in
-        final lastToken = prefs.getString('last_registered_auth_token');
-        if (lastToken != null && lastToken.isNotEmpty && lastToken != 'GUEST') {
-          debugPrint('WebViewContainer: No token found anywhere after re-check — user logged out externally.');
-          await _handleLogoutSync(lastToken);
-        } else {
-          debugPrint('WebViewContainer: No auth token found. Registering as guest device...');
-          await registerDeviceWithBackend(null);
+        // No token anywhere — the user is not logged in (or logged out on the web).
+        final prefs = await SharedPreferences.getInstance();
+        final lastKey = prefs.getString('last_registered_auth_token');
+        if (lastKey != null && lastKey != 'GUEST') {
+          await prefs.remove('last_registered_auth_token');
+          await prefs.remove('last_registered_fcm_token');
         }
+        await registerDeviceWithBackend(null);
       }
     } catch (e) {
       debugPrint('WebViewContainer: Error in auth sync: $e');
@@ -1015,8 +1145,8 @@ class WebViewContainerState extends State<WebViewContainer> {
   Future<void> _backgroundCacheData() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final token = prefs.getString('jodeals_auth_token');
-      
+      final token = await AuthTokenStore.read();
+
       final cacheService = CacheService.instance;
       if (await cacheService.isDealsCacheExpired() || await cacheService.isCategoriesCacheExpired()) {
         await cacheService.syncDealsAndCategories(_baseUrl, token: token);
@@ -1123,7 +1253,7 @@ class WebViewContainerState extends State<WebViewContainer> {
       return;
     }
     
-    final String tokenKey = token ?? 'GUEST';
+    final String tokenKey = _registrationKey(token);
     if (lastRegisteredToken == tokenKey && lastFcmToken == currentFcmToken) {
       return;
     }
@@ -1203,7 +1333,7 @@ class WebViewContainerState extends State<WebViewContainer> {
       if (registerResponse.statusCode == 200) {
         final regData = json.decode(registerResponse.body);
         if (regData['status'] == 'success') {
-          debugPrint('WebViewContainer: Device registered successfully (token: $tokenKey).');
+          debugPrint('WebViewContainer: Device registered successfully.');
           await prefs.setString('last_registered_auth_token', tokenKey);
           await prefs.setString('last_registered_fcm_token', currentFcmToken);
         }
@@ -1303,45 +1433,6 @@ class WebViewContainerState extends State<WebViewContainer> {
       return false;
     } else {
       _showSnackBar(_txt('تم رفض إذن الموقع.', 'Location permission denied.'), isError: true);
-      return false;
-    }
-  }
-
-  Future<bool> _requestGalleryPermission() async {
-    PermissionStatus status;
-    if (Platform.isAndroid) {
-      final androidInfo = await DeviceInfoPlugin().androidInfo;
-      if (androidInfo.version.sdkInt >= 33) {
-        status = await Permission.photos.status;
-        if (status.isDenied) {
-          status = await Permission.photos.request();
-        }
-      } else {
-        status = await Permission.storage.status;
-        if (status.isDenied) {
-          status = await Permission.storage.request();
-        }
-      }
-    } else {
-      status = await Permission.photos.status;
-      if (status.isDenied) {
-        status = await Permission.photos.request();
-      }
-    }
-
-    if (status.isGranted || status.isLimited) {
-      return true;
-    } else if (status.isPermanentlyDenied) {
-      _showSettingsDialog(
-        title: _txt('إذن الصور مطلوب', 'Photos Permission Required'),
-        message: _txt(
-          'يرجى تفعيل الوصول للصور في الإعدادات لرفع الصور.',
-          'Please enable Photos access in Settings to upload images.',
-        ),
-      );
-      return false;
-    } else {
-      _showSnackBar(_txt('تم رفض إذن الصور.', 'Photos permission denied.'), isError: true);
       return false;
     }
   }
@@ -1523,14 +1614,9 @@ class WebViewContainerState extends State<WebViewContainer> {
 
     if (source == null) return [];
 
-    bool isGranted = false;
-    if (source == 'camera') {
-      isGranted = await _requestCameraPermission();
-    } else {
-      isGranted = await _requestGalleryPermission();
-    }
-
-    if (!isGranted) return [];
+    // The gallery uses the system photo picker, which needs no permission
+    // (Android Photo Picker / iOS PHPicker). Only the camera does.
+    if (source == 'camera' && !await _requestCameraPermission()) return [];
 
     try {
       final ImagePicker picker = ImagePicker();
@@ -1553,100 +1639,156 @@ class WebViewContainerState extends State<WebViewContainer> {
 
   Future<bool> handleGoogleSignIn() async {
     try {
+      await _ensureGoogleSignInInitialized();
       final googleUser = await _googleSignIn.authenticate();
-      if (googleUser == null) {
+      // The backend must verify this ID token (signature, aud, iss, exp) and
+      // derive the user's identity from it — never trust the plain fields.
+      final String? idToken = googleUser.authentication.idToken;
+      if (idToken == null) {
+        _showSnackBar(_txt('فشل تسجيل الدخول عبر Google.', 'Google Sign-In failed.'), isError: true);
         return false;
       }
-      
-      _loadingNotifier.value = true;
-      
-      final String? guestId = await getGuestId();
-      final response = await http.post(
-        Uri.parse('$_baseUrl/api/v1/auth/social.php'),
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: json.encode({
-          'provider': 'google',
+
+      return await _completeSocialLogin(
+        provider: 'google',
+        providerName: 'Google',
+        payload: {
+          'id_token': idToken,
           'provider_id': googleUser.id,
           'email': googleUser.email,
           'name': googleUser.displayName ?? '',
           'profile_image': googleUser.photoUrl ?? '',
-          'platform': 'mobile',
-          'guest_id': guestId,
-        }),
+        },
       );
-      
-      if (response.statusCode == 200) {
-        final Map<String, dynamic> data = json.decode(response.body);
-        if (data['status'] == 'success' && data['token'] != null) {
-          final String token = data['token'];
-          
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setString('jodeals_auth_token', token);
-          
-          await _controller.runJavaScript(
-            "localStorage.setItem('jodeals_auth_token', '$token');"
-          );
-          
-          await _syncRememberTokenCookie(token);
-          await registerDeviceWithBackend(token);
-          
-          final Uri baseUri = Uri.parse(widget.initialUrl);
-          final String redirectUrl = baseUri.replace(
-            path: '/profile.php',
-            query: 'login_social_success=1',
-          ).toString();
-
-          _controller.loadRequest(Uri.parse(redirectUrl));
-          _showSnackBar(_txt('تم تسجيل الدخول بنجاح عبر Google!', 'Logged in successfully with Google!'));
-          return true;
-        } else {
-          _showSnackBar(
-            data['message'] ?? _txt('فشل المصادقة.', 'Authentication failed.'),
-            isError: true,
-          );
-          _loadingNotifier.value = false;
-        }
-      } else {
-        _showSnackBar(
-          _txt(
-            'خطأ في المصادقة من الخادم (${response.statusCode}).',
-            'Server authentication error (${response.statusCode}).',
-          ),
-          isError: true,
-        );
-        _loadingNotifier.value = false;
-      }
     } catch (e) {
       debugPrint('Google Sign-In exception: $e');
-      // If error is canceled by user, don't show scary error message
-      final errStr = e.toString();
-      if (!errStr.contains('canceled')) {
-        _showSnackBar(
-          _txt('فشل تسجيل الدخول عبر Google.', 'Google Sign-In failed.'),
-          isError: true,
-        );
+      final bool canceled = e is GoogleSignInException && e.code == GoogleSignInExceptionCode.canceled;
+      if (!canceled && !e.toString().contains('canceled')) {
+        _showSnackBar(_txt('فشل تسجيل الدخول عبر Google.', 'Google Sign-In failed.'), isError: true);
       }
       _loadingNotifier.value = false;
     }
     return false;
   }
 
+  /// Sign in with Apple (App Store Guideline 4.8). The backend must verify the
+  /// identity token against Apple's public keys (aud = com.jodealz.app).
+  Future<bool> handleAppleSignIn() async {
+    try {
+      final credential = await SignInWithApple.getAppleIDCredential(
+        scopes: [AppleIDAuthorizationScopes.email, AppleIDAuthorizationScopes.fullName],
+      );
+      final String? identityToken = credential.identityToken;
+      if (identityToken == null) {
+        _showSnackBar(_txt('فشل تسجيل الدخول عبر Apple.', 'Sign in with Apple failed.'), isError: true);
+        return false;
+      }
+      final String name = [credential.givenName, credential.familyName]
+          .whereType<String>()
+          .where((s) => s.isNotEmpty)
+          .join(' ');
+
+      return await _completeSocialLogin(
+        provider: 'apple',
+        providerName: 'Apple',
+        payload: {
+          'id_token': identityToken,
+          'authorization_code': credential.authorizationCode,
+          'provider_id': credential.userIdentifier ?? '',
+          'email': credential.email ?? '',
+          'name': name,
+        },
+      );
+    } on SignInWithAppleAuthorizationException catch (e) {
+      if (e.code != AuthorizationErrorCode.canceled) {
+        _showSnackBar(_txt('فشل تسجيل الدخول عبر Apple.', 'Sign in with Apple failed.'), isError: true);
+      }
+    } catch (e) {
+      debugPrint('Apple Sign-In exception: $e');
+      _showSnackBar(_txt('فشل تسجيل الدخول عبر Apple.', 'Sign in with Apple failed.'), isError: true);
+    }
+    _loadingNotifier.value = false;
+    return false;
+  }
+
+  Future<bool> _completeSocialLogin({
+    required String provider,
+    required String providerName,
+    required Map<String, dynamic> payload,
+  }) async {
+    _loadingNotifier.value = true;
+
+    final String? guestId = await getGuestId();
+    final response = await http.post(
+      Uri.parse('$_baseUrl/api/v1/auth/social.php'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
+      body: json.encode({
+        'provider': provider,
+        ...payload,
+        'platform': 'mobile',
+        'guest_id': guestId,
+      }),
+    );
+
+    if (response.statusCode == 200) {
+      final Map<String, dynamic> data = json.decode(response.body);
+      if (data['status'] == 'success' && data['token'] != null) {
+        final String token = data['token'];
+
+        await syncSessionToWebView(token);
+        await registerDeviceWithBackend(token);
+
+        final Uri baseUri = Uri.parse(widget.initialUrl);
+        final String redirectUrl = baseUri.replace(
+          path: '/profile.php',
+          query: 'login_social_success=1',
+        ).toString();
+
+        _controller.loadRequest(Uri.parse(redirectUrl));
+        _showSnackBar(_txt('تم تسجيل الدخول بنجاح عبر $providerName!', 'Logged in successfully with $providerName!'));
+        return true;
+      }
+      _showSnackBar(
+        data['message'] ?? _txt('فشل المصادقة.', 'Authentication failed.'),
+        isError: true,
+      );
+    } else {
+      _showSnackBar(
+        _txt(
+          'خطأ في المصادقة من الخادم (${response.statusCode}).',
+          'Server authentication error (${response.statusCode}).',
+        ),
+        isError: true,
+      );
+    }
+    _loadingNotifier.value = false;
+    return false;
+  }
+
+  Future<void>? _googleInitFuture;
+
+  Future<void> _ensureGoogleSignInInitialized() {
+    return _googleInitFuture ??= _initGoogleSignIn();
+  }
+
   Future<void> _initGoogleSignIn() async {
     try {
+      // iOS reads its client ID from GIDClientID in Info.plist, which must be
+      // an iOS OAuth client whose reversed ID is registered in
+      // CFBundleURLSchemes. The server client is the Web client.
       await _googleSignIn.initialize(
-        clientId: Platform.isIOS
-            ? '724842455682-9277p7oml8409inicouerru4ivl4ns0f.apps.googleusercontent.com'
-            : null,
         serverClientId: '724842455682-9277p7oml8409inicouerru4ivl4ns0f.apps.googleusercontent.com',
       );
     } catch (e) {
       debugPrint('WebViewContainer: GoogleSignIn.initialize failed: $e');
+      _googleInitFuture = null;
     }
   }
 }
+
 
 class LinearGradientProgressIndicator extends StatelessWidget {
   final double value;

@@ -5,6 +5,7 @@ class AuthScreenArgs {
   final Future<void> Function(String token) onSuccess;
   final VoidCallback onCancel;
   final Future<void> Function()? googleSignInHandler;
+  final Future<bool> Function()? appleSignInHandler;
   final String? guestId;
 
   AuthScreenArgs({
@@ -12,6 +13,7 @@ class AuthScreenArgs {
     required this.onSuccess,
     required this.onCancel,
     this.googleSignInHandler,
+    this.appleSignInHandler,
     this.guestId,
   });
 }

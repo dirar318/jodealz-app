@@ -10,9 +10,6 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:jodeals/services/fcm_service.dart';
 import 'package:jodeals/screens/auth/auth_screen_args.dart';
 import 'package:jodeals/theme/app_colors.dart';
-import 'package:jodeals/theme/app_radius.dart';
-import 'package:jodeals/theme/app_typography.dart';
-import 'package:jodeals/theme/app_spacing.dart';
 
 class RegisterScreen extends StatefulWidget {
   final String baseUrl;

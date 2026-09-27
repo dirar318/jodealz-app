@@ -14,17 +14,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:jodeals/screens/auth/auth_screen_args.dart';
 import 'package:jodeals/services/app_logger.dart';
+import 'package:jodeals/services/auth_token_store.dart';
 import 'package:jodeals/services/fcm_service.dart';
 import 'package:jodeals/theme/app_colors.dart';
-import 'package:jodeals/theme/app_radius.dart';
-import 'package:jodeals/theme/app_typography.dart';
-import 'package:jodeals/theme/app_spacing.dart';
 
 class LoginScreen extends StatefulWidget {
   final String baseUrl;
   final Future<void> Function(String token) onLoginSuccess;
   final VoidCallback onCancel;
   final Future<void> Function() googleSignInHandler;
+  final Future<bool> Function()? appleSignInHandler;
   final String? guestId;
 
   const LoginScreen({
@@ -33,6 +32,7 @@ class LoginScreen extends StatefulWidget {
     required this.onLoginSuccess,
     required this.onCancel,
     required this.googleSignInHandler,
+    this.appleSignInHandler,
     this.guestId,
   });
 
@@ -44,7 +44,10 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _secureStorage = const FlutterSecureStorage();
+  // Device-only Keychain item: never synced to iCloud or restored from backups.
+  final _secureStorage = const FlutterSecureStorage(
+    iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock_this_device),
+  );
   final _localAuth = LocalAuthentication();
 
   bool _isLoading = false;
@@ -328,7 +331,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
 
           // 2. Delayed Session Cleanup: Only logout previous session after success and validation
           final prefs = await SharedPreferences.getInstance();
-          final currentToken = prefs.getString('jodeals_auth_token');
+          final currentToken = await AuthTokenStore.read();
           if (currentToken != null && currentToken.isNotEmpty && currentToken != token) {
             try {
               await http.post(
@@ -342,7 +345,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
             } catch (e) {
               debugPrint('Silent logout of previous session failed: $e');
             }
-            await prefs.remove('jodeals_auth_token');
+            await AuthTokenStore.clear();
             await prefs.remove('last_registered_auth_token');
             await prefs.remove('last_registered_fcm_token');
           }
@@ -357,7 +360,6 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           }
 
           AppLogger().logInfo('User login successful', payload: {
-            'email': _emailController.text.trim(),
             'remember_me': _rememberMe,
           });
 
@@ -378,18 +380,14 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           setState(() {
             _errorMessage = _txt('رمز الجلسة غير صالح من الخادم.', 'Invalid session token returned by server.');
           });
-          AppLogger().logWarning('Login API returned success but token was null', payload: {
-            'email': _emailController.text.trim(),
-          });
+          AppLogger().logWarning('Login API returned success but token was null');
           _triggerShake();
         }
       } else {
         setState(() {
           _errorMessage = responseData['message'] ?? _txt('فشل تسجيل الدخول. يرجى التحقق من بياناتك.', 'Login failed. Please check your credentials.');
         });
-        AppLogger().logWarning('User login failed: $_errorMessage', payload: {
-          'email': _emailController.text.trim(),
-        });
+        AppLogger().logWarning('User login failed: $_errorMessage');
         _triggerShake();
       }
     } on SocketException catch (e) {
@@ -422,7 +420,7 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
           _errorMessage = _txt('حدث خطأ أثناء الاتصال بالخادم.', 'Server error. Please try again.');
         });
       }
-      AppLogger().logWarning('Login HTTP exception: ${e.message}', payload: {'email': _emailController.text.trim()});
+      AppLogger().logWarning('Login HTTP exception: ${e.message}');
       _triggerShake();
     } catch (e, stack) {
       setState(() {
@@ -937,6 +935,54 @@ class _LoginScreenState extends State<LoginScreen> with TickerProviderStateMixin
                               ],
                             ),
                             const SizedBox(height: 18),
+
+                            // Sign in with Apple (iOS, App Store Guideline 4.8)
+                            if (Platform.isIOS && widget.appleSignInHandler != null) ...[
+                              ElevatedButton(
+                                onPressed: (_isLoading || _isSuccess)
+                                    ? null
+                                    : () async {
+                                        HapticFeedback.lightImpact();
+                                        setState(() {
+                                          _isLoading = true;
+                                          _errorMessage = null;
+                                        });
+                                        final navigator = Navigator.of(context);
+                                        final success = await widget.appleSignInHandler!();
+                                        if (!mounted) return;
+                                        if (success) {
+                                          navigator.pop();
+                                        } else {
+                                          setState(() => _isLoading = false);
+                                        }
+                                      },
+                                style: ElevatedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  backgroundColor: Colors.black,
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(16),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    const Icon(Icons.apple, size: 20),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      _txt('تسجيل الدخول عبر Apple', 'Sign in with Apple'),
+                                      style: customFont.copyWith(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                            ],
 
                             // Google Login Button (Premium & styled)
                             OutlinedButton(

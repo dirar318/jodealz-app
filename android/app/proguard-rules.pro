@@ -1,28 +1,6 @@
-# Flutter Wrapper rules
--keep class io.flutter.app.** { *; }
--keep class io.flutter.plugin.** { *; }
--keep class io.flutter.util.** { *; }
--keep class io.flutter.view.** { *; }
--keep class io.flutter.embedding.** { *; }
--keep class io.flutter.plugins.** { *; }
--keep class io.flutter.plugin.editing.** { *; }
--keep class io.flutter.plugin.platform.** { *; }
--keep class io.flutter.plugin.common.** { *; }
+# The Flutter Gradle plugin adds the rules the Flutter embedding needs, and
+# Firebase, WebView and the other plugins ship their own consumer rules, so
+# broad "-keep class x.**" rules are not needed here (they only bloat the APK).
 
-# Firebase rules
--keep class com.google.firebase.** { *; }
--dontwarn com.google.firebase.**
--keep class com.google.android.gms.internal.measurement.** { *; }
--dontwarn com.google.android.gms.internal.measurement.**
-
-# Keep standard Kotlin classes
--keep class kotlin.** { *; }
--dontwarn kotlin.**
-
-# Keep webview_flutter rules if needed
--keep class io.flutter.plugins.webviewflutter.** { *; }
--keep class android.webkit.** { *; }
-
-# Ignore Google Play Core warnings for deferred components since they are not used
+# Flutter references Play Core for deferred components, which this app does not use.
 -dontwarn com.google.android.play.core.**
-

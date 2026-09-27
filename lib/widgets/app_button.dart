@@ -64,7 +64,6 @@ class AppButton extends StatelessWidget {
         fontSize = 15;
         break;
       case AppButtonSize.medium:
-      default:
         height = AppSpacing.buttonHeight; // 48px
         padding = const EdgeInsets.symmetric(horizontal: AppSpacing.button);
         fontSize = 14;

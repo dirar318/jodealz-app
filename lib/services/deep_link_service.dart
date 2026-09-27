@@ -1,30 +1,22 @@
+import 'dart:async';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 
 class DeepLinkService {
   static final AppLinks _appLinks = AppLinks();
+  static StreamSubscription<Uri>? _subscription;
 
-  // Initialize listening to App Links / Universal Links
+  /// Listens for App Links / Universal Links. Since app_links 6 the stream
+  /// also delivers the link that launched the app, so no separate
+  /// initial-link lookup is needed. Callers must treat the URL as untrusted.
   static void initialize({
     required Function(String url) onLinkReceived,
   }) {
-    // 1. Listen for link changes when the app is running (foreground or background)
-    _appLinks.uriLinkStream.listen((Uri uri) {
-      debugPrint('DeepLink: Link intercepted: $uri');
-      // Normalize and forward to the webview
+    _subscription?.cancel();
+    _subscription = _appLinks.uriLinkStream.listen((Uri uri) {
       onLinkReceived(uri.toString());
     }, onError: (err) {
       debugPrint('DeepLink: Error processing link: $err');
-    });
-
-    // 2. Check if the app was launched from a closed/terminated state via a link
-    _appLinks.getInitialAppLink().then((Uri? uri) {
-      if (uri != null) {
-        debugPrint('DeepLink: Initial launch link detected: $uri');
-        onLinkReceived(uri.toString());
-      }
-    }).catchError((err) {
-      debugPrint('DeepLink: Error retrieving initial link: $err');
     });
   }
 }

@@ -6,22 +6,27 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:jodeals/services/consent_service.dart';
 import 'package:jodeals/services/fcm_service.dart';
 
+/// Registers the device for push notifications and — only when the user has
+/// opted in via [ConsentService] — sends usage analytics (screens, deal and
+/// category views, load times, crashes, device/network details).
 class AnonymousTrackingService {
   static const String _baseUrl = 'https://jodealz.online';
-  
+
   static final AnonymousTrackingService _instance = AnonymousTrackingService._internal();
   factory AnonymousTrackingService() => _instance;
   AnonymousTrackingService._internal();
 
   String? _deviceUuid;
+  bool _analyticsAllowed = false;
+  // Promotional notifications are opt-in (App Store Guideline 4.5.4).
   Map<String, dynamic> _cachedPreferences = {
     'new_deals_enabled': 1,
     'discounts_enabled': 1,
     'category_updates_enabled': 1,
-    'marketing_enabled': 1,
+    'marketing_enabled': 0,
   };
 
   String get deviceUuid => _deviceUuid ?? 'unknown_device';
@@ -30,7 +35,8 @@ class AnonymousTrackingService {
   Future<void> initialize() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      
+      _analyticsAllowed = await ConsentService.analyticsAllowed();
+
       // 1. Get or generate Device UUID
       _deviceUuid = prefs.getString('anonymous_device_uuid');
       if (_deviceUuid == null) {
@@ -40,8 +46,6 @@ class AnonymousTrackingService {
         }
       }
 
-      debugPrint('AnonymousTrackingService: Initialized with UUID: $_deviceUuid');
-
       // 2. Perform background registration & sync
       // Run asynchronously so we do not block app startup
       _syncDeviceData();
@@ -50,13 +54,19 @@ class AnonymousTrackingService {
     }
   }
 
+  /// Call after the user changes their analytics choice.
+  Future<void> onConsentChanged() async {
+    _analyticsAllowed = await ConsentService.analyticsAllowed();
+    if (_deviceUuid != null) _syncDeviceData();
+  }
+
   // Generate unique device UUID based on hardware info or fallback to UUID
   Future<String> _generateDeviceUuid() async {
     final deviceInfo = DeviceInfoPlugin();
     try {
       if (Platform.isAndroid) {
         final androidInfo = await deviceInfo.androidInfo;
-        return androidInfo.id; // Unique identifier for Android
+        return androidInfo.id;
       } else if (Platform.isIOS) {
         final iosInfo = await deviceInfo.iosInfo;
         return iosInfo.identifierForVendor ?? DateTime.now().millisecondsSinceEpoch.toString();
@@ -73,91 +83,48 @@ class AnonymousTrackingService {
     return List.generate(length, (index) => chars[(rnd + index) % chars.length]).join();
   }
 
-  // Periodic/Startup sync device data
+  // Startup sync: registers the device for push; adds device/network details
+  // only with analytics consent. Location is never collected here.
   Future<void> _syncDeviceData() async {
     if (_deviceUuid == null) return;
 
     try {
       final packageInfo = await PackageInfo.fromPlatform();
-      final deviceInfo = DeviceInfoPlugin();
-      
-      // Get FCM token
-      String? fcmToken = FCMService.token;
+      final String? fcmToken = FCMService.token;
+      final String platform = Platform.isAndroid ? 'android' : (Platform.isIOS ? 'ios' : 'unknown');
 
-      // Platform details
-      String platform = Platform.isAndroid ? 'android' : (Platform.isIOS ? 'ios' : 'unknown');
-      String manufacturer = 'Unknown';
-      String model = 'Unknown';
-      String osVersion = 'Unknown';
-
-      if (Platform.isAndroid) {
-        final androidInfo = await deviceInfo.androidInfo;
-        manufacturer = androidInfo.manufacturer;
-        model = androidInfo.model;
-        osVersion = androidInfo.version.release;
-      } else if (Platform.isIOS) {
-        final iosInfo = await deviceInfo.iosInfo;
-        manufacturer = 'Apple';
-        model = iosInfo.utsname.machine;
-        osVersion = iosInfo.systemVersion;
-      }
-
-      // App version
-      String appVersion = packageInfo.version;
-
-      // Language & Timezone
-      String language = Platform.localeName.split('_').first;
-      String timezone = DateTime.now().timeZoneName;
-
-      // Network details
-      String networkType = 'Unknown';
-      String carrier = 'Unknown';
-      try {
-        final connectivityResult = await Connectivity().checkConnectivity();
-        if (connectivityResult == ConnectivityResult.wifi) {
-          networkType = 'WiFi';
-        } else if (connectivityResult == ConnectivityResult.mobile) {
-          networkType = 'Cellular';
-        } else if (connectivityResult == ConnectivityResult.none) {
-          networkType = 'None';
-        }
-      } catch (e) {
-        debugPrint('AnonymousTrackingService: Network status fetch error: $e');
-      }
-
-      // Location details (Optional - only if permission is already granted)
-      double? latitude;
-      double? longitude;
-      try {
-        LocationPermission permission = await Geolocator.checkPermission();
-        if (permission == LocationPermission.always || permission == LocationPermission.whileInUse) {
-          final position = await Geolocator.getLastKnownPosition(forceAndroidLocationManager: true);
-          if (position != null) {
-            latitude = position.latitude;
-            longitude = position.longitude;
-          }
-        }
-      } catch (e) {
-        debugPrint('AnonymousTrackingService: Location fetch error: $e');
-      }
-
-      final payload = {
+      final Map<String, dynamic> payload = {
         'device_id': _deviceUuid,
         'fcm_token': fcmToken,
         'platform': platform,
-        'manufacturer': manufacturer,
-        'device_model': model,
-        'os_version': osVersion,
-        'app_version': appVersion,
-        'language': language,
-        'timezone': timezone,
-        'network_type': networkType,
-        'carrier': carrier,
-        'latitude': ?latitude,
-        'longitude': ?longitude,
+        'app_version': packageInfo.version,
+        'language': Platform.localeName.split('_').first,
       };
 
-      debugPrint('AnonymousTrackingService: Registering device: $payload');
+      if (_analyticsAllowed) {
+        final deviceInfo = DeviceInfoPlugin();
+        if (Platform.isAndroid) {
+          final androidInfo = await deviceInfo.androidInfo;
+          payload['manufacturer'] = androidInfo.manufacturer;
+          payload['device_model'] = androidInfo.model;
+          payload['os_version'] = androidInfo.version.release;
+        } else if (Platform.isIOS) {
+          final iosInfo = await deviceInfo.iosInfo;
+          payload['manufacturer'] = 'Apple';
+          payload['device_model'] = iosInfo.utsname.machine;
+          payload['os_version'] = iosInfo.systemVersion;
+        }
+        payload['timezone'] = DateTime.now().timeZoneName;
+        try {
+          final results = await Connectivity().checkConnectivity();
+          payload['network_type'] = results.contains(ConnectivityResult.wifi)
+              ? 'WiFi'
+              : results.contains(ConnectivityResult.mobile)
+                  ? 'Cellular'
+                  : 'Unknown';
+        } catch (_) {}
+      }
+
       final response = await http.post(
         Uri.parse('$_baseUrl/api/register-device.php'),
         headers: {'Content-Type': 'application/json'},
@@ -165,7 +132,6 @@ class AnonymousTrackingService {
       );
 
       if (response.statusCode == 200) {
-        debugPrint('AnonymousTrackingService: Sync successful: ${response.body}');
         final prefs = await SharedPreferences.getInstance();
         await prefs.setString('last_registered_auth_token', 'GUEST');
         if (fcmToken != null) {
@@ -194,7 +160,6 @@ class AnonymousTrackingService {
         final data = json.decode(response.body);
         if (data['status'] == 'success' && data['preferences'] != null) {
           _cachedPreferences = Map<String, dynamic>.from(data['preferences']);
-          debugPrint('AnonymousTrackingService: Fetched preferences: $_cachedPreferences');
         }
       }
     } catch (e) {
@@ -248,7 +213,7 @@ class AnonymousTrackingService {
 
   // Update last visited screen
   Future<void> updateLastScreen(String screenName) async {
-    if (_deviceUuid == null) return;
+    if (_deviceUuid == null || !_analyticsAllowed) return;
     if (_lastTrackedScreen == screenName) return;
     _lastTrackedScreen = screenName;
     try {
@@ -278,7 +243,7 @@ class AnonymousTrackingService {
     required String interestType, // 'view_category', 'view_deal', 'favorite_category'
     required String itemId,
   }) async {
-    if (_deviceUuid == null) return;
+    if (_deviceUuid == null || !_analyticsAllowed) return;
     try {
       final payload = {
         'device_id': _deviceUuid,
@@ -305,7 +270,7 @@ class AnonymousTrackingService {
 
   // Track app load performance
   Future<void> trackLoadTime(double seconds) async {
-    if (_deviceUuid == null) return;
+    if (_deviceUuid == null || !_analyticsAllowed) return;
     try {
       final payload = {
         'device_id': _deviceUuid,
@@ -330,7 +295,7 @@ class AnonymousTrackingService {
 
   // Track app crash
   Future<void> trackCrash() async {
-    if (_deviceUuid == null) return;
+    if (_deviceUuid == null || !_analyticsAllowed) return;
     try {
       final payload = {
         'device_id': _deviceUuid,

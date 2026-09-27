@@ -64,7 +64,7 @@ class AppBottomSheet {
                           ),
                         ),
                       ),
-                      if (action != null) action,
+                      ?action,
                       IconButton(
                         icon: Icon(
                           Icons.close,

@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -19,6 +21,9 @@ import 'package:jodeals/screens/auth/auth_screen_args.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'package:jodeals/services/anonymous_tracking_service.dart';
+import 'package:jodeals/services/consent_service.dart';
+import 'package:jodeals/services/trusted_hosts.dart';
+import 'package:jodeals/widgets/privacy_consent_sheet.dart';
 import 'package:jodeals/screens/onboarding_screen.dart';
 import 'package:jodeals/theme/app_theme.dart';
 import 'package:jodeals/theme/app_colors.dart';
@@ -26,7 +31,21 @@ import 'package:google_fonts/google_fonts.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  GoogleFonts.config.allowRuntimeFetching = true;
+
+  // debugPrint writes to the device log in release builds too; tokens,
+  // device IDs and URLs must not end up in logcat / Console.
+  if (kReleaseMode) {
+    debugPrint = (String? message, {int? wrapWidth}) {};
+  }
+
+  // Fonts are bundled in assets/fonts; never download them at runtime.
+  GoogleFonts.config.allowRuntimeFetching = false;
+  LicenseRegistry.addLicense(() async* {
+    for (final family in const ['cairo', 'inter', 'poppins']) {
+      final license = await rootBundle.loadString('assets/fonts/OFL-$family.txt');
+      yield LicenseEntryWithLineBreaks(['google_fonts'], license);
+    }
+  });
 
   // ── Read SharedPreferences once at startup ────────────────────────────────
   // Shared by JoDealsApp (locale) and AppController (URL lang param) so we
@@ -39,6 +58,10 @@ void main() async {
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
+
+  // Must be registered before runApp so pushes that arrive while the app is
+  // terminated are handled.
+  FCMService.registerBackgroundHandler();
 
   // Tune global image cache limits for smooth scrolling and low memory usage
   PaintingBinding.instance.imageCache.maximumSizeBytes = 50 * 1024 * 1024; // 50MB max RAM image cache
@@ -60,9 +83,14 @@ void main() async {
     });
   });
 
+  // Crash reports (symbolicated via uploaded R8 mappings / dSYMs). Disabled
+  // in debug so development crashes don't pollute the dashboard.
+  unawaited(FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(!kDebugMode));
+
   // Capture global Flutter framework exceptions
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
+    FirebaseCrashlytics.instance.recordFlutterFatalError(details);
     AppLogger().logFatal(
       'Global Flutter exception',
       error: details.exception,
@@ -74,6 +102,7 @@ void main() async {
 
   // Capture global asynchronous platform exceptions
   PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
     AppLogger().logFatal(
       'Global asynchronous exception',
       error: error,
@@ -165,6 +194,7 @@ class _JoDealsAppState extends State<JoDealsApp> {
               onLoginSuccess: args?.onSuccess ?? (token) async {},
               onCancel: args?.onCancel ?? () => Navigator.pop(context),
               googleSignInHandler: args?.googleSignInHandler ?? () async {},
+              appleSignInHandler: args?.appleSignInHandler,
               guestId: args?.guestId,
             ),
             settings,
@@ -188,6 +218,7 @@ class _JoDealsAppState extends State<JoDealsApp> {
             ProfileScreen(
               baseUrl: args?['baseUrl'] ?? 'https://jodealz.online',
               onLogout: args?['onLogout'] ?? () {},
+              onAccountDeleted: args?['onAccountDeleted'],
             ),
             settings,
           );
@@ -304,12 +335,14 @@ class _AppControllerState extends State<AppController> {
 
 
   void _handleNavigation(String url) {
-    debugPrint('AppController: Requesting navigation to $url');
+    // Deep links and push payloads are untrusted input: only JoDeals URLs are
+    // loaded in the app WebView.
+    final String target = TrustedHosts.sanitize(url);
     if (_webViewKey.currentState != null) {
-      _webViewKey.currentState?.loadUrl(url);
+      _webViewKey.currentState?.loadUrl(target);
     } else {
       setState(() {
-        _targetUrl = url;
+        _targetUrl = target;
       });
     }
   }
@@ -320,17 +353,15 @@ class _AppControllerState extends State<AppController> {
 
     // 2. Firebase is already initialized in main() — skip initializeApp here.
     //    Delay FCM setup until after page load so the WebView gets full I/O
-    //    bandwidth. The permission dialog and getToken() network call will not
-    //    compete with the initial page fetch.
+    //    bandwidth. On first launch the notification permission is requested
+    //    only after onboarding, so the system prompt has context.
     Future.delayed(const Duration(seconds: 4), () async {
       if (!mounted) return;
       try {
-        debugPrint('Firebase: already initialized — starting FCM setup');
-
         await FCMService.initialize(
+          requestPermission: !_showOnboarding,
           onNotificationClicked: _handleNavigation,
           onForegroundMessage: (RemoteMessage message) {
-            debugPrint('AppController: Foreground message received: ${message.notification?.title}');
             try {
               FlutterRingtonePlayer().playNotification();
             } catch (e) {
@@ -389,10 +420,36 @@ class _AppControllerState extends State<AppController> {
             setState(() {
               _showSplash = false;
             });
+            if (!_showOnboarding) _askAnalyticsConsentIfNeeded();
           }
         });
       }
     }
+  }
+
+  /// Called once the user leaves onboarding (any sign-in method or guest).
+  Future<void> _completeOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('jodeals_first_launch', false);
+    if (mounted) {
+      setState(() {
+        _showOnboarding = false;
+      });
+    }
+    await _askAnalyticsConsentIfNeeded();
+    await FCMService.requestPermission();
+  }
+
+  bool _consentPromptShown = false;
+
+  Future<void> _askAnalyticsConsentIfNeeded() async {
+    if (_consentPromptShown || !mounted) return;
+    if (await ConsentService.analyticsChoice() != null) return;
+    _consentPromptShown = true;
+    if (!mounted) return;
+    final bool allowed = await showPrivacyConsentSheet(context);
+    await ConsentService.setAnalytics(allowed);
+    AnonymousTrackingService().onConsentChanged();
   }
 
   @override
@@ -418,15 +475,12 @@ class _AppControllerState extends State<AppController> {
           OnboardingScreen(
             onGoogleLogin: () async {
               final success = await _webViewKey.currentState?.handleGoogleSignIn() ?? false;
-              if (success) {
-                final prefs = await SharedPreferences.getInstance();
-                await prefs.setBool('jodeals_first_launch', false);
-                if (mounted) {
-                  setState(() {
-                    _showOnboarding = false;
-                  });
-                }
-              }
+              if (success) await _completeOnboarding();
+              return success;
+            },
+            onAppleLogin: () async {
+              final success = await _webViewKey.currentState?.handleAppleSignIn() ?? false;
+              if (success) await _completeOnboarding();
               return success;
             },
             onEmailLogin: () async {
@@ -436,32 +490,23 @@ class _AppControllerState extends State<AppController> {
               navigator.pushNamed(
                 '/login',
                 arguments: AuthScreenArgs(
-                  baseUrl: 'https://jodealz.online',
+                  baseUrl: TrustedHosts.baseUrl,
                   onSuccess: (token) async {
                     await _webViewKey.currentState?.syncSessionToWebView(token);
                     await _webViewKey.currentState?.registerDeviceWithBackend(token);
-                    final prefs = await SharedPreferences.getInstance();
-                    await prefs.setBool('jodeals_first_launch', false);
-                    if (mounted) {
-                      setState(() {
-                        _showOnboarding = false;
-                      });
-                    }
+                    await _completeOnboarding();
                   },
                   onCancel: () {
                     // Stay on onboarding screen
                   },
                   googleSignInHandler: () async {
                     final success = await _webViewKey.currentState?.handleGoogleSignIn() ?? false;
-                    if (success) {
-                      final prefs = await SharedPreferences.getInstance();
-                      await prefs.setBool('jodeals_first_launch', false);
-                      if (mounted) {
-                        setState(() {
-                          _showOnboarding = false;
-                        });
-                      }
-                    }
+                    if (success) await _completeOnboarding();
+                  },
+                  appleSignInHandler: () async {
+                    final success = await _webViewKey.currentState?.handleAppleSignIn() ?? false;
+                    if (success) await _completeOnboarding();
+                    return success;
                   },
                   guestId: guestId,
                 ),
@@ -469,13 +514,7 @@ class _AppControllerState extends State<AppController> {
             },
             onGuestLogin: () async {
               await _webViewKey.currentState?.registerDeviceWithBackend(null);
-              final prefs = await SharedPreferences.getInstance();
-              await prefs.setBool('jodeals_first_launch', false);
-              if (mounted) {
-                setState(() {
-                  _showOnboarding = false;
-                });
-              }
+              await _completeOnboarding();
             },
           ),
 
